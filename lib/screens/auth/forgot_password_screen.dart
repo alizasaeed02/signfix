@@ -241,11 +241,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _passwordError = 'Please enter a new password.');
       return;
     }
-    if (pass.length < 10) {
-      setState(() => _passwordError = 'Password must be at least 10 characters.');
+    if (pass.length < 6 || pass.length > 8) {
+      setState(() => _passwordError = 'Password must be 6 to 8 characters long.');
       return;
     }
-    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,72}$')
+    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{6,8}$')
         .hasMatch(pass)) {
       setState(() => _passwordError =
           'Must include uppercase, lowercase, number, and special character.');
@@ -825,7 +825,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _buildPasswordRequirements(String pass) {
-    final hasMinLength = pass.length >= 10;
+    final hasMinLength = pass.length >= 6 && pass.length <= 8;
     final hasUpper = RegExp(r'[A-Z]').hasMatch(pass);
     final hasLower = RegExp(r'[a-z]').hasMatch(pass);
     final hasNumber = RegExp(r'\d').hasMatch(pass);
@@ -850,7 +850,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _requirementRow('At least 10 characters', hasMinLength),
+          _requirementRow('6 to 8 characters', hasMinLength),
           _requirementRow('Uppercase & lowercase letters', hasUpper && hasLower),
           _requirementRow('At least one number (0-9)', hasNumber),
           _requirementRow('At least one special symbol (!@#\$...)', hasSpecial),
