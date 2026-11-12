@@ -685,6 +685,10 @@ class _OrderCard extends StatelessWidget {
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Retry Payment'),
                     style: FilledButton.styleFrom(
+                      // The app theme gives buttons an infinite minimum
+                      // width, which cannot be laid out inside a Row.
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       visualDensity: VisualDensity.compact,
                       textStyle: const TextStyle(
                           fontWeight: FontWeight.w800, fontSize: 12),
