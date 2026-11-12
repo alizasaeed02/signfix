@@ -672,7 +672,9 @@ class ApiClient {
         'message': 'Order placed successfully.',
       };
     }
-    return _request('POST', '/orders', body: body);
+    // The body carries an idempotencyKey, so a retried request can't create
+    // a duplicate order.
+    return _request('POST', '/orders', body: body, retries: 2);
   }
 
   Future<List<dynamic>> orders() async {
@@ -966,20 +968,31 @@ class ApiClient {
     if (mockMode) return createPaymentIntent(data);
 
     final requestData = Map<String, dynamic>.from(data)..remove('amount');
+    // idempotencyKey makes a repeated request safe -> retry network blips.
     return _request(
       'POST',
       '/customer/payments/order-intents',
       body: requestData,
+      retries: 2,
     );
   }
 
+  // Verify / failure report are safe to repeat (server de-duplicates), and a
+  // dropped connection right after paying must not leave the order "pending".
   Future<Map<String, dynamic>> verifyPayment(
           String paymentId, Map<String, dynamic> data) =>
-      _request('POST', '/customer/payments/$paymentId/verify', body: data);
+      _request('POST', '/customer/payments/$paymentId/verify',
+          body: data, retries: 3);
+
+  /// Guide "Retry payment": returns a new payment session ({id, checkout…}).
+  Future<Map<String, dynamic>> retryPayment(String paymentId) =>
+      _request('POST', '/customer/payments/$paymentId/retry',
+          body: {}, retries: 1);
 
   Future<Map<String, dynamic>> reportPaymentFailure(
           String paymentId, Map<String, dynamic> data) =>
-      _request('POST', '/customer/payments/$paymentId/failure', body: data);
+      _request('POST', '/customer/payments/$paymentId/failure',
+          body: data, retries: 2);
 
   Future<List<dynamic>> getPayments() async =>
       (await _request('GET', '/customer/payments'))['data'] as List<dynamic>? ??
@@ -989,9 +1002,58 @@ class ApiClient {
   Future<Map<String, dynamic>> createDesignRequest(Map<String, dynamic> data) =>
       _request('POST', '/customer/designs', body: data);
 
+  /// AI storefront preview. Uses the dedicated image endpoint; if the server
+  /// does not have that route yet (404 "Route ... was not found") it falls
+  /// back to the AI chat route, which already generates design images.
   Future<Map<String, dynamic>> generateDesignPreview(
-          Map<String, dynamic> data) =>
-      _request('POST', '/customer/designs/preview', body: data);
+      Map<String, dynamic> data) async {
+    try {
+      return await _request('POST', '/customer/designs/preview',
+          body: data, timeout: const Duration(seconds: 120));
+    } on ApiException catch (e) {
+      final routeMissing =
+          e.statusCode == 404 || e.message.toLowerCase().contains('was not found');
+      if (!routeMissing) rethrow;
+      return _previewViaChat(data);
+    }
+  }
+
+  Future<Map<String, dynamic>> _previewViaChat(Map<String, dynamic> d) async {
+    String? v(String k) {
+      final s = d[k]?.toString().trim();
+      return (s == null || s.isEmpty) ? null : s;
+    }
+
+    final text = v('businessText') ?? 'SignFix';
+    final parts = <String>[
+      'Create a photorealistic 3D ${v('signType') ?? 'LED signboard'} design with the name "$text".',
+      'Follow these selections EXACTLY and do not change them:',
+      if (v('color') != null)
+        'the letters and their LED glow must be ${v('color')} in color;',
+      if (v('background') != null) 'backing / material: ${v('background')};',
+      if (v('font') != null) 'font style: ${v('font')};',
+      if (v('style') != null) 'style: ${v('style')};',
+      if (v('dimensions') != null) 'sign size: ${v('dimensions')};',
+      if (v('notes') != null) v('notes')!,
+      'Show it mounted on a modern storefront facade.',
+      'The text must be spelled exactly "$text".',
+    ];
+    final res = await chat(parts.join(' '));
+    var url = (res['imageUrl'] ?? res['image'])?.toString();
+    if (url == null || url.trim().isEmpty) {
+      final reply = res['reply']?.toString() ?? '';
+      url = RegExp(r'!\[[^\]]*\]\(([^)\s]+)\)').firstMatch(reply)?.group(1) ??
+          RegExp(r'https?://[^\s)]+\.(?:png|jpe?g|webp)[^\s)]*',
+                  caseSensitive: false)
+              .firstMatch(reply)
+              ?.group(0);
+    }
+    if (url == null || url.trim().isEmpty) {
+      throw const ApiException(
+          'The AI did not return an image this time. Please try again.');
+    }
+    return {'imageUrl': url};
+  }
 
   Future<Map<String, dynamic>> generateDesignConcept(int designId,
           {String? prompt}) =>
@@ -1099,7 +1161,26 @@ class ApiClient {
     if (_token != null) headers['Authorization'] = 'Bearer $_token';
   }
 
+  /// Sends the request, retrying short network failures (no connection,
+  /// timeout, dropped connection). GETs retry twice by default; pass
+  /// [retries] for POSTs that are safe to repeat (idempotency key / verify).
   Future<Map<String, dynamic>> _request(String method, String path,
+      {Map<String, dynamic>? body,
+      Duration timeout = const Duration(seconds: 30),
+      int? retries}) async {
+    final maxRetries = retries ?? (method == 'GET' ? 2 : 0);
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _requestOnce(method, path, body: body, timeout: timeout);
+      } on ApiException catch (e) {
+        // Server answered (statusCode set) -> not a network blip, don't retry.
+        if (e.statusCode != null || attempt >= maxRetries) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 700 * (attempt + 1)));
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>> _requestOnce(String method, String path,
       {Map<String, dynamic>? body,
       Duration timeout = const Duration(seconds: 30)}) async {
     final uri = Uri.parse('$baseUrl$path');

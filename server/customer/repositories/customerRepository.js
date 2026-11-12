@@ -1067,7 +1067,83 @@ async function generateDesignPreview(userId, data) {
   } else if (category.includes("power") || category.includes("electrical")) {
     prompt = `Commercial product photography of an industrial LED signboard power supply unit, technical extruded aluminium casing with ventilation honeycomb holes, 12V DC terminals, specifications label, studio table lighting.`;
   } else {
-    prompt = `Photorealistic architectural storefront signage mockup. High-end 3D dimensional signboard lettering reading "${data.businessText}". Typography: ${data.font || "Montserrat"}. Lettering Color: ${data.color || "Gold"}. Backing: ${data.background || "Brushed ACP aluminium fascia"}. Street view storefront facade, daytime natural light, clean corporate sign.`;
+    const fontLook = {
+      montserrat: "bold geometric modern sans-serif capitals",
+      "bebas neue": "tall condensed all-caps headline sans-serif",
+      "playfair display": "elegant high-contrast luxury serif",
+      outfit: "clean thin architectural geometric sans-serif",
+      oswald: "narrow bold commercial gothic sans-serif",
+    };
+    const bgLook = {
+      "glossy black acrylic": "a glossy jet-black acrylic panel with mirror-like reflections",
+      "clear acrylic backing": "a transparent clear acrylic panel, glass-like, with the wall visible through it",
+      "brushed gold acp": "a brushed gold metallic aluminium composite panel with fine linear grain",
+      "silver aluminium panel": "a brushed silver aluminium panel with a metallic sheen",
+      "architectural walnut wood": "a dark walnut wood panel with visible wood grain",
+    };
+    const wallLook = {
+      "exposed dark brick": "an exposed dark brick wall",
+      "industrial concrete": "a raw dark industrial concrete wall",
+      "modern storefront": "a modern dark storefront facade",
+      "luxury dark marble": "a luxury dark marble wall",
+    };
+    const fontName = String(data.font || "Montserrat").split(" (")[0];
+    const fontDesc = fontLook[fontName.toLowerCase()] || "clean sans-serif";
+    const bgName = String(data.background || "Brushed ACP aluminium");
+    const bgDesc = bgLook[bgName.toLowerCase()] || bgName;
+    const wallName = String(data.style || "").replace(/ wall$/i, "");
+    const wallDesc = wallLook[wallName.toLowerCase()] || wallName || "a dark textured wall";
+    const colorName = data.color || "Gold";
+    prompt = `Photorealistic close-up photo of one illuminated 3D signboard fixed on ${wallDesc}, in a dark moody evening setting. The sign is a rectangular backing plate made of ${bgDesc}, with raised 3D letters mounted on the plate. The letters spell exactly "${data.businessText}" (no other words, no extra text, spelled correctly), in ${fontDesc} lettering (${fontName} typeface), colored ${colorName}, with a soft ${colorName} LED glow around the letters. The plate is a wide rectangle with proportions of about ${data.dimensions || "3 x 1.5 ft"}, centered, front view, fully visible. Do not use any other letter color, plate material, or wall.`;
+  }
+  // DALL-E 3 rewrites prompts by default; ask it to keep ours verbatim.
+  prompt = `I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: ${prompt}`;
+
+  // Preferred path: the app sends a render of the exact sign the customer
+  // configured; the model only makes it photorealistic, so every selection
+  // (colors, font, plate, border, glow, wall) is preserved.
+  if (process.env.OPENAI_API_KEY && data.referenceImage && !category.includes("power")) {
+    try {
+      const OpenAI = require("openai");
+      const ai = require("../../services/aiPlatform");
+      const raw = String(data.referenceImage).replace(/^data:image\/\w+;base64,/, "");
+      const file = await OpenAI.toFile(Buffer.from(raw, "base64"), "sign-preview.png", { type: "image/png" });
+      const editPrompt = `The attached image is the customer's exact signboard design mockup. Re-render it as a photorealistic photograph of that real sign installed on its wall. Preserve EXACTLY, without any change: the text "${data.businessText}" and its spelling; the lettering style and font shape; the letter color and the glow color; the backing plate color, material, rectangular shape, border and proportions; the wall color and texture; the overall composition and position. Do not add, remove or restyle anything, add no extra text, logos or objects, and do not change any color. Only add realism: real material texture, depth, lighting and a physical mounting.`;
+      const result = await ai.openai().images.edit({
+        model: process.env.OPENAI_IMAGE_EDIT_MODEL || "gpt-image-1",
+        image: file,
+        prompt: editPrompt,
+        size: "1536x1024",
+      });
+      const b64 = result.data?.[0]?.b64_json;
+      if (b64) {
+        let imageUrl = `data:image/png;base64,${b64}`;
+        if (process.env.CLOUDINARY_CLOUD_NAME) {
+          try {
+            const cloudinary = require("cloudinary").v2;
+            cloudinary.config({
+              cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+              api_key: process.env.CLOUDINARY_API_KEY,
+              api_secret: process.env.CLOUDINARY_API_SECRET,
+            });
+            imageUrl = (
+              await cloudinary.uploader.upload(imageUrl, { folder: "signfix/design-concepts" })
+            ).secure_url;
+          } catch (upErr) {
+            console.warn("[AI] Cloudinary upload failed, returning inline image:", upErr.message);
+          }
+        }
+        return {
+          success: true,
+          isRealAi: true,
+          imageUrl,
+          prompt: editPrompt,
+          disclaimer: "Concept mockup only; not final production artwork.",
+        };
+      }
+    } catch (editErr) {
+      console.warn("[AI] Reference-image edit failed, falling back to text prompt:", editErr.message);
+    }
   }
 
   if (process.env.OPENAI_API_KEY) {

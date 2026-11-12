@@ -6,6 +6,7 @@ import '../dashboard/dashboard_screen.dart';
 import '../jobs/jobs_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
+import '../requests/service_request_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.api, required this.onLogout});
@@ -27,6 +28,7 @@ class _AppShellState extends State<AppShell> {
     _pages = [
       DashboardScreen(api: widget.api, onGoToJobs: () => _goTo(1)),
       JobsScreen(api: widget.api, onLogout: widget.onLogout),
+      TechnicianServiceRequestScreen(api: widget.api),
       NotificationsScreen(
         key: _notifKey,
         api: widget.api,
@@ -50,11 +52,11 @@ class _AppShellState extends State<AppShell> {
 
   void _goTo(int i) {
     // Entering notifications tab → refresh the screen
-    if (i == 2) {
+    if (i == 3) {
       _notifKey.currentState?.refresh();
     }
     // Leaving notifications tab → reload badge
-    if (_index == 2 && i != 2) {
+    if (_index == 3 && i != 3) {
       _loadUnread();
     }
     setState(() => _index = i);
@@ -117,7 +119,7 @@ class _AppShellState extends State<AppShell> {
                 IconButton(
                   icon: const Icon(Icons.notifications_outlined,
                       color: AppColors.goldDark),
-                  onPressed: () => _goTo(2),
+                  onPressed: () => _goTo(3),
                 ),
                 if (_unread > 0)
                   Positioned(
@@ -167,21 +169,28 @@ class _AppShellState extends State<AppShell> {
                         selected: _index == 1,
                         color: AppColors.gold,
                         onTap: () => _goTo(1)),
+                    _NavItem(
+                        icon: Icons.build_circle_outlined,
+                        selectedIcon: Icons.build_circle,
+                        label: 'Request',
+                        selected: _index == 2,
+                        color: AppColors.gold,
+                        onTap: () => _goTo(2)),
                     _NavItemBadge(
                         icon: Icons.notifications_outlined,
                         selectedIcon: Icons.notifications,
                         label: 'Alerts',
-                        selected: _index == 2,
+                        selected: _index == 3,
                         color: AppColors.gold,
                         badge: _unread,
-                        onTap: () => _goTo(2)),
+                        onTap: () => _goTo(3)),
                     _NavItem(
                         icon: Icons.person_outline,
                         selectedIcon: Icons.person,
                         label: 'Profile',
-                        selected: _index == 3,
+                        selected: _index == 4,
                         color: AppColors.gold,
-                        onTap: () => _goTo(3)),
+                        onTap: () => _goTo(4)),
                   ],
                 ),
               ),

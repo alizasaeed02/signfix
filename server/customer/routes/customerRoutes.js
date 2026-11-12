@@ -238,6 +238,7 @@ const designPreview = z.object({
   style: z.string().optional(),
   dimensions: z.string().optional(),
   notes: z.string().max(2000).optional(),
+  referenceImage: z.string().max(1_500_000).optional(),
 });
 router.post("/designs/preview", validate(designPreview), controller.generateDesignPreview);
 router.post("/designs", validate(design), controller.createDesign);

@@ -12,6 +12,8 @@ import '../../services/latest_request_gate.dart';
 import '../../services/pricing_conflict_flow.dart';
 import '../../widgets/common.dart';
 import '../../widgets/address_autocomplete_field.dart';
+import '../../widgets/ai_preview_card.dart';
+import '../payment/payment_screen.dart' show razorpayCheckoutOptions;
 import 'text_designer_screen.dart';
 
 class OrderWizard extends StatefulWidget {
@@ -56,6 +58,11 @@ class _OrderWizardState extends State<OrderWizard> {
   bool _quoteIsCurrent = false;
   SignBoardTextDesign? _textDesign;
   StructuredAddress? _structuredDeliveryAddress;
+
+  // AI storefront preview (shown on the final step, attached to the order).
+  String? _aiImageUrl;
+  String? _aiPrompt;
+  bool _aiConfirmed = false;
 
   // ── Step 4 Payment state ──────────────────────────────────────────────────
   late final Razorpay _razorpay;
@@ -407,6 +414,12 @@ class _OrderWizardState extends State<OrderWizard> {
         if (_textDesign != null) 'signFont': _textDesign!.fontFamily,
         if (_textDesign != null)
           'signColor': _textDesign!.color.toARGB32().toRadixString(16),
+        if (_aiConfirmed &&
+            _aiImageUrl != null &&
+            !_aiImageUrl!.startsWith('data:')) ...{
+          'aiGeneratedImageUrl': _aiImageUrl,
+          'aiPrompt': _aiPrompt,
+        },
       });
       final id = order['id']?.toString();
       if (id == null || id.isEmpty) {
@@ -482,6 +495,7 @@ class _OrderWizardState extends State<OrderWizard> {
   }
 
   void _reset() {
+    AiPreviewCard.clearCache('wizard'); // new order: start fresh
     _designFiles.clear();
     setState(() {
       step = 0;
@@ -740,13 +754,34 @@ class _OrderWizardState extends State<OrderWizard> {
       String checkoutDesc = 'Order $_submittedOrderNo ($_paymentType)';
 
       try {
-        final intent = await widget.api.createOrderPaymentIntent({
-          'orderNo': _submittedOrderNo,
-          'type': _paymentType,
-          'amount': payAmount,
-          'idempotencyKey': '${DateTime.now().microsecondsSinceEpoch}-'
-              '${Random.secure().nextInt(1 << 32).toRadixString(16)}',
-        });
+        final intentKey = '${DateTime.now().microsecondsSinceEpoch}-'
+            '${Random.secure().nextInt(1 << 32).toRadixString(16)}';
+        Map<String, dynamic> intent;
+        try {
+          intent = await widget.api.createOrderPaymentIntent({
+            'orderNo': _submittedOrderNo,
+            'type': _paymentType,
+            'amount': payAmount,
+            'idempotencyKey': intentKey,
+          });
+        } on ApiException catch (e) {
+          // The server keeps one open payment per order. If an earlier
+          // attempt is still open under the other type, continue that one.
+          final inProgress = e.statusCode == 409 &&
+              e.message.toLowerCase().contains('in progress');
+          if (!inProgress) rethrow;
+          final other = _paymentType == 'full' ? 'advance' : 'full';
+          intent = await widget.api.createOrderPaymentIntent({
+            'orderNo': _submittedOrderNo,
+            'type': other,
+            'idempotencyKey': '$intentKey-$other',
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(
+                    'Continuing your earlier $other payment for this order.')));
+          }
+        }
         debugPrint('OrderWizard payment intent response received: $intent');
         _payIntentId = intent['id']?.toString();
         final checkoutValue = intent['checkout'];
@@ -781,61 +816,37 @@ class _OrderWizardState extends State<OrderWizard> {
         'amountPaise=$amountInPaise, orderId=$providerOrderId.',
       );
 
-      final prefill = <String, dynamic>{
-        'name': profile['name']?.toString() ?? '',
-        'email': profile['email']?.toString() ?? '',
-        'contact':
+      // Options built exactly as payment_api_guide.pdf (Step 2): a typed UPI
+      // ID sends the collect request to that ID, otherwise installed UPI apps
+      // open; card / net banking / wallet / EMI open their own screen.
+      const bankMap = {
+        'SBI': 'SBIN',
+        'HDFC Bank': 'HDFC',
+        'ICICI Bank': 'ICIC',
+        'Axis Bank': 'UTIB',
+        'Kotak Mahindra': 'KKBK',
+        'Punjab National Bank': 'PUNB_R',
+        'Bank of Baroda': 'BARB_R',
+        'Canara Bank': 'CNRB',
+        'Yes Bank': 'YESB',
+        'IDBI Bank': 'IBKL',
+      };
+      final options = razorpayCheckoutOptions(
+        key: keyId,
+        amountInPaise: amountInPaise,
+        currency: currency,
+        name: checkoutName,
+        description: checkoutDesc,
+        providerOrderId: providerOrderId,
+        customerName: profile['name']?.toString() ?? '',
+        customerEmail: profile['email']?.toString() ?? '',
+        customerPhone:
             profile['phone']?.toString() ?? profile['mobile']?.toString() ?? '',
-      };
-
-      if (_payMethod == 'upi') {
-        prefill['method'] = 'upi';
-        final vpa = _upiController.text.trim();
-        if (vpa.isNotEmpty) {
-          prefill['vpa'] = vpa;
-        }
-      } else if (_payMethod == 'card') {
-        prefill['method'] = 'card';
-      } else if (_payMethod == 'netbanking') {
-        prefill['method'] = 'netbanking';
-        if (_selectedBank != null) {
-          const bankMap = {
-            'SBI': 'SBIN',
-            'HDFC Bank': 'HDFC',
-            'ICICI Bank': 'ICIC',
-            'Axis Bank': 'UTIB',
-            'Kotak Mahindra': 'KKBK',
-            'Punjab National Bank': 'PUNB_R',
-            'Bank of Baroda': 'BARB_R',
-            'Canara Bank': 'CNRB',
-            'Yes Bank': 'YESB',
-            'IDBI Bank': 'IBKL',
-          };
-          final bankCode = bankMap[_selectedBank];
-          if (bankCode != null) prefill['bank'] = bankCode;
-        }
-      } else if (_payMethod == 'wallet') {
-        prefill['method'] = 'wallet';
-        if (_selectedWallet != null) {
-          prefill['wallet'] = _selectedWallet!.toLowerCase();
-        }
-      } else if (_payMethod == 'emi') {
-        prefill['method'] = 'emi';
-      }
-
-      final options = <String, dynamic>{
-        'key': keyId,
-        'amount': amountInPaise,
-        'currency': currency,
-        'name': checkoutName,
-        'description': checkoutDesc,
-        if (providerOrderId != null && providerOrderId.isNotEmpty)
-          'order_id': providerOrderId,
-        'prefill': prefill,
-        'theme': {
-          'color': '#F5A800',
-        },
-      };
+        method: _payMethod,
+        upiId: _upiController.text.trim(),
+        bank: _selectedBank == null ? null : bankMap[_selectedBank],
+        wallet: _selectedWallet?.toLowerCase(),
+      );
 
       _razorpay.open(options);
 
@@ -1917,6 +1928,50 @@ class _OrderWizardState extends State<OrderWizard> {
           padding: EdgeInsets.only(bottom: 12),
           child: LinearProgressIndicator(color: AppColors.gold),
         ),
+      // ── AI storefront preview of the selections made in steps 0-3 ──────
+      AiPreviewCard(
+        api: widget.api,
+        cacheScope: 'wizard',
+        ready: !_orderSubmitted,
+        selectionKey: [
+          type,
+          material,
+          lighting,
+          _ledWatt,
+          _sideWalling,
+          length.text,
+          width.text,
+          unit,
+          _textDesign?.text,
+          _textDesign?.fontFamily,
+          _textDesign?.color.toARGB32(),
+        ].join('|'),
+        buildRequest: () => {
+          'category': 'Signage',
+          'signType': type,
+          'businessText': (_textDesign?.text.trim().isNotEmpty ?? false)
+              ? _textDesign!.text.trim()
+              : type,
+          if (_textDesign != null) 'font': _textDesign!.fontFamily,
+          if (_textDesign != null)
+            'color':
+                '#${_textDesign!.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+          'background': '$material backing, ${lighting.toLowerCase()}',
+          if (_sideWalling != null && _sideWalling!.isNotEmpty)
+            'style': 'Side walling: $_sideWalling',
+          'dimensions': '${length.text} x ${width.text} $unit',
+        },
+        promptSummary: () =>
+            'AI storefront preview of a $type in $material with $lighting '
+            'lighting, ${length.text} x ${width.text} $unit'
+            '${_textDesign != null ? ', text "${_textDesign!.text}"' : ''}.',
+        onChanged: (url, prompt, confirmed) {
+          _aiImageUrl = url;
+          _aiPrompt = prompt;
+          _aiConfirmed = confirmed;
+        },
+      ),
+      const SizedBox(height: 14),
       Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

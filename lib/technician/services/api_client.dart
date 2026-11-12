@@ -604,6 +604,32 @@ class TechnicianApi {
     return _decode(await http.Response.fromStream(await request.send()));
   }
 
+  // ── Service requests raised by the technician from the field ──────────────
+
+  /// Same data as the customer service request + the on-site contact number.
+  Future<Map<String, dynamic>> createSiteRequest(
+      Map<String, dynamic> body) async {
+    if (mockMode) {
+      await Future.delayed(_mockDelay);
+      return {
+        'id': 'TSR-MOCK-${DateTime.now().millisecondsSinceEpoch % 100000}',
+        'status': 'submitted',
+        'message': 'Your service request has been submitted to the SignFix team.',
+      };
+    }
+    return _request('POST', '/technician/service-requests', body: body);
+  }
+
+  Future<List<dynamic>> siteRequests() async {
+    if (mockMode) {
+      await Future.delayed(_mockDelay);
+      return [];
+    }
+    final res = await _request('GET', '/technician/service-requests');
+    final data = res['data'];
+    return data is List ? data : [];
+  }
+
   Future<Map<String, dynamic>> _request(String method, String path,
       {Map<String, dynamic>? body}) async {
     final u = Uri.parse('$baseUrl$path');

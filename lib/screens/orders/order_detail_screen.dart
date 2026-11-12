@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../core/app_utils.dart';
+import '../../core/order_status.dart';
 import '../../services/api_client.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -39,33 +40,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   void _reload() {
     _refresh();
   }
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'completed':
-      case 'delivered':
-        return AppColors.success;
-      case 'in_production':
-      case 'ready':
-        return AppColors.gold;
-      case 'pending':
-      case 'reviewed':
-        return AppColors.warning;
-      case 'cancelled':
-        return AppColors.danger;
-      default:
-        return AppColors.textMuted;
-    }
-  }
-
-  static const _flow = [
-    'pending',
-    'reviewed',
-    'in_production',
-    'ready',
-    'installation',
-    'delivered',
-  ];
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -154,10 +128,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               );
             }
             final o = snap.data!;
-            final status = o['status']?.toString() ?? 'pending';
-            final currentStep =
-                _flow.indexOf(status).clamp(0, _flow.length - 1);
-            final statusColor = _statusColor(status);
+            final info = orderStatusInfo(o['status']);
+            final statusColor = info.color;
+            final flow = kOrderFlow;
+            // -1 = cancelled / unknown status: no step is marked as reached.
+            final currentStep = flow.indexWhere((s) => s.key == info.key);
 
             return RefreshIndicator(
               color: AppColors.gold,
@@ -203,11 +178,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                               border: Border.all(
                                   color: statusColor.withValues(alpha: .4)),
                             ),
-                            child: Text(humanize(status),
-                                style: TextStyle(
-                                    color: statusColor,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 13)),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(info.icon, size: 15, color: statusColor),
+                              const SizedBox(width: 6),
+                              Text(info.label,
+                                  style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13)),
+                            ]),
                           ),
                         ]),
                   ),
@@ -217,7 +196,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   _Card(
                     title: 'Order Progress',
                     child: Column(children: [
-                      ..._flow.asMap().entries.map((entry) {
+                      if (info.key == 'cancelled')
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(children: [
+                            Icon(info.icon, color: info.color),
+                            const SizedBox(width: 10),
+                            Text('This order was cancelled',
+                                style: TextStyle(
+                                    color: info.color,
+                                    fontWeight: FontWeight.w800)),
+                          ]),
+                        ),
+                      ...flow.asMap().entries.map((entry) {
                         final idx = entry.key;
                         final step = entry.value;
                         final isDone = idx <= currentStep;
@@ -249,7 +240,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                         : AppColors.textMuted,
                                   ),
                                 ),
-                                if (idx < _flow.length - 1)
+                                if (idx < flow.length - 1)
                                   Container(
                                     width: 2,
                                     height: 28,
@@ -267,7 +258,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(humanize(step),
+                                        Text(step.label,
                                             style: TextStyle(
                                               fontWeight: isNow
                                                   ? FontWeight.w800

@@ -183,3 +183,6 @@ ALTER TABLE orders ADD COLUMN delhivery_awb VARCHAR(40) NULL;
 ALTER TABLE orders ADD COLUMN shipment_status VARCHAR(20) NOT NULL DEFAULT 'PENDING';
 ALTER TABLE orders ADD COLUMN shipment_error TEXT NULL;
 CREATE INDEX idx_orders_delhivery_awb ON orders(delhivery_awb);
+
+-- Service requests raised by technicians from the field (also auto-created on first use)
+CREATE TABLE IF NOT EXISTS technician_service_requests (id BIGINT AUTO_INCREMENT PRIMARY KEY, request_no VARCHAR(30) UNIQUE NOT NULL, user_id BIGINT NOT NULL, category VARCHAR(80), description TEXT, contact_name VARCHAR(120), contact_number VARCHAR(20), address TEXT, latitude DECIMAL(10,7) NULL, longitude DECIMAL(10,7) NULL, photos JSON, status VARCHAR(40) DEFAULT 'submitted', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_tsr_user (user_id));
