@@ -7,6 +7,7 @@ import '../../services/api_client.dart';
 import '../payment/payment_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/address_autocomplete_field.dart';
+import '../../widgets/ai_preview_card.dart';
 
 class PowerSupplyProduct {
   const PowerSupplyProduct({
@@ -230,6 +231,11 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
   Timer? _priceDebounce;
   int _priceRequestGeneration = 0;
 
+  // AI storefront preview (attached to the order when "Use this design").
+  String? _aiImageUrl;
+  String? _aiPrompt;
+  bool _aiConfirmed = false;
+
   // Wattage Calculator inputs
   final _neonLengthCtrl = TextEditingController(text: '15');
   int _calculatedRecommendedWatts = 0;
@@ -326,7 +332,8 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
           ? orderMinimumShortfall(_displayTotal)
           : 0;
 
-  Future<void> _proceedToCheckout({bool retryAfterPriceChange = true}) async {
+  Future<void> _proceedToCheckout(
+      {bool retryAfterPriceChange = true, PaymentChoice? choice}) async {
     if (_minimumOrderShortfall > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -382,9 +389,16 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
         'idempotencyKey':
             '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32).toRadixString(16)}',
         'promotionBannerId': widget.promotionBannerId,
+        if (_aiConfirmed &&
+            _aiImageUrl != null &&
+            !_aiImageUrl!.startsWith('data:')) ...{
+          'aiGeneratedImageUrl': _aiImageUrl,
+          'aiPrompt': _aiPrompt,
+        },
       };
 
       final order = await widget.api.createOrder(orderSpecs);
+      AiPreviewCard.clearCache('power'); // order placed: start fresh next time
       final orderId = order['id']?.toString() ?? '';
 
       if (!mounted) return;
@@ -399,6 +413,7 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
           orderNo: orderId,
           amount: estimatedPrice,
           description: 'Power supply order $orderId',
+          choice: choice,
         );
       } catch (_) {
         paid = false;
@@ -471,7 +486,8 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
             ) ??
             false;
         if (accepted && mounted) {
-          await _proceedToCheckout(retryAfterPriceChange: false);
+          await _proceedToCheckout(
+              retryAfterPriceChange: false, choice: choice);
         }
       } else if (mounted) {
         showAppError(context, error);
@@ -939,6 +955,38 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
           ),
           const SizedBox(height: 24),
 
+          // ── AI storefront preview of the selected power supply ─────────────
+          AiPreviewCard(
+            api: widget.api,
+            cacheScope: 'power',
+            ready: true,
+            selectionKey:
+                '${_selectedProduct.id}|$_quantity|$_includeQuickConnectors|$_includeMountingClips',
+            buildRequest: () => {
+              'category': 'Power Supply',
+              'signType': 'LED signboard powered by an LED driver',
+              'businessText': _selectedProduct.name,
+              'background': 'Backlit LED signboard on a storefront facade',
+              'dimensions':
+                  '${_selectedProduct.wattage}W ${_selectedProduct.outputVoltage}',
+              'notes':
+                  'Show the ${_selectedProduct.name} (${_selectedProduct.wattage}W, '
+                      '${_selectedProduct.outputVoltage}, IP rating ${_selectedProduct.ipRating}) '
+                      'powering an illuminated LED signboard. Quantity: $_quantity.'
+                      '${_includeQuickConnectors ? ' Quick connectors included.' : ''}'
+                      '${_includeMountingClips ? ' Mounting clips included.' : ''}',
+            },
+            promptSummary: () =>
+                'AI storefront preview: ${_selectedProduct.name} '
+                '(${_selectedProduct.wattage}W), qty $_quantity.',
+            onChanged: (url, prompt, confirmed) {
+              _aiImageUrl = url;
+              _aiPrompt = prompt;
+              _aiConfirmed = confirmed;
+            },
+          ),
+          const SizedBox(height: 20),
+
           // ── Checkout summary card ───────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(16),
@@ -1033,33 +1081,40 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _submitting ||
-                            _isCalculatingPrice ||
-                            _serverQuote == null ||
-                            _minimumOrderShortfall > 0
-                        ? null
-                        : _proceedToCheckout,
-                    icon: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: AppColors.navy))
-                        : const Icon(Icons.shopping_bag_outlined),
-                    label: Text(
-                      _submitting
-                          ? 'Submitting Order...'
-                          : _isCalculatingPrice
-                              ? 'Calculating server price...'
-                              : _minimumOrderShortfall > 0
-                                  ? 'Minimum order ${money(2500)}'
-                                  : 'Order Power Supply (${money(_displayTotal)})',
+                if (_serverQuote != null)
+                  PaymentOptionsPanel(
+                    embedded: true,
+                    allowTypeChoice: true,
+                    amount: _displayTotal,
+                    launched: _submitting,
+                    enabled: !_submitting &&
+                        !_isCalculatingPrice &&
+                        _minimumOrderShortfall <= 0,
+                    buttonLabel: _submitting
+                        ? 'Submitting Order...'
+                        : _isCalculatingPrice
+                            ? 'Calculating server price...'
+                            : _minimumOrderShortfall > 0
+                                ? 'Minimum order ${money(2500)}'
+                                : null,
+                    onPay: (method, upiId, type, {bank, wallet}) =>
+                        _proceedToCheckout(
+                            choice: PaymentChoice(method, type,
+                                upiId: upiId, bank: bank, wallet: wallet)),
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: null,
+                      icon: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.navy)),
+                      label: const Text('Calculating server price...'),
                     ),
                   ),
-                ),
               ],
             ),
           ),

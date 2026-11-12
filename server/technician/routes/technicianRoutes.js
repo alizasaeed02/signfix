@@ -29,4 +29,17 @@ router.patch('/notifications/:id/read',controller.readNotification);
 router.post('/notifications/devices',validate(z.object({token:z.string().min(20),platform:z.enum(['android','ios','web'])})),controller.registerDevice);
 router.delete('/notifications/devices',validate(z.object({token:z.string().min(20)})),controller.unregisterDevice);
 router.get('/reviews',controller.reviews);
+// Service request raised by the technician from the field (same fields as the customer request + contact number)
+const siteRequest=z.object({
+  category:z.string().trim().min(1).max(80),
+  description:z.string().trim().min(10).max(2000),
+  address:z.string().trim().min(3).max(500),
+  contactNumber:z.string().trim().regex(/^\+?[0-9][0-9\s-]{6,17}$/,'Enter a valid contact number'),
+  contactName:z.string().trim().max(120).optional(),
+  latitude:z.number().min(-90).max(90).nullish(),
+  longitude:z.number().min(-180).max(180).nullish(),
+  photos:z.array(z.string().min(1).max(500)).min(1).max(10),
+});
+router.post('/service-requests',validate(siteRequest),controller.createSiteRequest);
+router.get('/service-requests',controller.listSiteRequests);
 module.exports=router;

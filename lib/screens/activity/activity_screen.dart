@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../core/app_utils.dart';
+import '../../core/order_status.dart';
 import '../../services/api_client.dart';
 import '../../widgets/common.dart';
 import '../payment/payment_screen.dart';
@@ -22,13 +24,25 @@ class ActivityScreen extends StatefulWidget {
 }
 
 class _ActivityScreenState extends State<ActivityScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tab;
   late Future<List<List<dynamic>>> _future;
+  Timer? _autoRefresh;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Coming back to the app: pull the latest order statuses.
+    if (state == AppLifecycleState.resumed) _load();
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Keep statuses current while this tab is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && TickerMode.valuesOf(context).enabled) _load();
+    });
     _tab = TabController(length: 3, vsync: this);
     _future = Future.wait([
       widget.api.orders(),
@@ -53,6 +67,8 @@ class _ActivityScreenState extends State<ActivityScreen>
 
   @override
   void dispose() {
+    _autoRefresh?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     widget.tabNotifier?.removeListener(_onTabNotify);
     widget.refreshNotifier?.removeListener(_onRefreshNotify);
     _tab.dispose();
@@ -149,12 +165,14 @@ class _ActivityScreenState extends State<ActivityScreen>
               child: FutureBuilder<List<List<dynamic>>>(
                 future: _future,
                 builder: (context, snap) {
-                  if (snap.connectionState != ConnectionState.done) {
+                  // Background refreshes keep showing the previous data.
+                  if (snap.connectionState != ConnectionState.done &&
+                      snap.data == null) {
                     return const Center(
                         child:
                             CircularProgressIndicator(color: AppColors.gold));
                   }
-                  if (snap.hasError) {
+                  if (snap.hasError && snap.data == null) {
                     final errMsg = snap.error.toString();
                     final isAuthError =
                         errMsg.toLowerCase().contains('authentication') ||
@@ -220,6 +238,7 @@ class _ActivityScreenState extends State<ActivityScreen>
                       ),
                     );
                   }
+                  if (snap.data == null) return const SizedBox.shrink();
                   final orders = snap.data![0];
                   final services = snap.data![1];
                   final quotations = snap.data![2];
@@ -229,7 +248,6 @@ class _ActivityScreenState extends State<ActivityScreen>
                     children: [
                       _OrdersList(
                           orders: orders,
-                          statusColor: _statusColor,
                           api: widget.api,
                           onRefresh: _refresh),
                       _ServicesList(
@@ -495,12 +513,10 @@ class _QuotationsList extends StatelessWidget {
 class _OrdersList extends StatelessWidget {
   const _OrdersList({
     required this.orders,
-    required this.statusColor,
     required this.api,
     required this.onRefresh,
   });
   final List<dynamic> orders;
-  final Color Function(String) statusColor;
   final ApiClient api;
   final Future<void> Function() onRefresh;
 
@@ -523,9 +539,8 @@ class _OrdersList extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) {
           final o = orders[i] as Map<String, dynamic>;
-          final status = o['status']?.toString() ?? 'pending';
-          final color = statusColor(status);
-          return _OrderCard(o: o, color: color, api: api, onRefresh: onRefresh);
+          return _OrderCard(
+              key: ValueKey(o['id']), o: o, api: api, onRefresh: onRefresh);
         },
       ),
     );
@@ -534,18 +549,52 @@ class _OrdersList extends StatelessWidget {
 
 class _OrderCard extends StatelessWidget {
   const _OrderCard(
-      {required this.o,
-      required this.color,
+      {super.key,
+      required this.o,
       required this.api,
       required this.onRefresh});
   final Map<String, dynamic> o;
-  final Color color;
   final ApiClient api;
   final Future<void> Function() onRefresh;
 
+  /// "Retry Payment": opens the payment page for this order's failed payment
+  /// (POST /customer/payments/:id/retry per the payment API guide).
+  Future<void> _retryPayment(BuildContext context) async {
+    final orderNo = o['id']?.toString() ?? '';
+    final paymentId = orderPaymentId(o);
+    final messenger = ScaffoldMessenger.of(context);
+    var paid = false;
+    try {
+      paid = await payForOrder(
+        context,
+        api,
+        orderNo: orderNo,
+        amount: (o['estimatedPrice'] as num?)?.toDouble() ??
+            double.tryParse('${o['estimatedPrice']}') ??
+            0,
+        description: 'Order $orderNo',
+        retryPaymentId: paymentId,
+        paymentType: o['paymentType']?.toString() == 'advance'
+            ? 'advance'
+            : 'full',
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+          content: Text('Could not start payment: $e'),
+          backgroundColor: AppColors.danger));
+    }
+    if (paid) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Payment successful.'),
+          backgroundColor: AppColors.success));
+    }
+    await onRefresh();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final status = o['status']?.toString() ?? 'pending';
+    final info = orderStatusInfo(o['status']);
+    final showRetry = orderPaymentFailed(o);
     return Container(
       decoration: BoxDecoration(
         color: AppColors.white,
@@ -589,7 +638,7 @@ class _OrderCard extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                             color: AppColors.charcoal)),
                   ])),
-              _Badge(humanize(status), color),
+              _Badge(info.label, info.color, icon: info.icon),
             ]),
             const Divider(height: 18, color: AppColors.cardBorder),
             Row(children: [
@@ -611,6 +660,39 @@ class _OrderCard extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 11, color: AppColors.textMuted)),
               ),
+            if (showRetry) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: AppColors.danger.withValues(alpha: .3)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.error_outline_rounded,
+                      color: AppColors.danger, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                      child: Text('Payment failed',
+                          style: TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12))),
+                  FilledButton.icon(
+                    onPressed: () => _retryPayment(context),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Retry Payment'),
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      textStyle: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 12),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
           ]),
         ),
       ),
@@ -820,9 +902,10 @@ class _ServiceCard extends StatelessWidget {
 
 // ── Shared Widgets ─────────────────────────────────────────────────────────────
 class _Badge extends StatelessWidget {
-  const _Badge(this.label, this.color);
+  const _Badge(this.label, this.color, {this.icon});
   final String label;
   final Color color;
+  final IconData? icon;
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -831,9 +914,18 @@ class _Badge extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: color.withValues(alpha: .3)),
         ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+          ),
+        ]),
       );
 }
 

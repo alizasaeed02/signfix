@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/app_utils.dart';
 import '../../core/app_theme.dart';
@@ -8,6 +12,7 @@ import '../../services/api_client.dart';
 import '../payment/payment_screen.dart';
 import '../../widgets/common.dart';
 import '../../widgets/address_autocomplete_field.dart';
+import '../../widgets/ai_preview_card.dart';
 
 class SignageFontOption {
   const SignageFontOption({
@@ -159,9 +164,50 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
   ];
   final Map<String, dynamic> _selectedWall = _walls[0];
 
-  // Dimensions
+  // Dimensions (slider for quick picks, typed fields for exact sizes)
   double _widthFt = 3.0;
   double _heightFt = 1.5;
+  static const _minWidthFt = 1.0, _maxWidthFt = 50.0;
+  static const _minHeightFt = 0.5, _maxHeightFt = 20.0;
+  final _widthCtrl = TextEditingController(text: '3.0');
+  final _heightCtrl = TextEditingController(text: '1.5');
+  bool _widthError = false, _heightError = false;
+
+  Widget _dimensionField({
+    required TextEditingController controller,
+    required bool hasError,
+    required ValueChanged<String> onChanged,
+  }) =>
+      SizedBox(
+        width: 84,
+        child: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d{0,2}\.?\d{0,2}')),
+          ],
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.navy, fontSize: 13),
+          decoration: InputDecoration(
+            isDense: true,
+            suffixText: 'ft',
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color: hasError ? AppColors.danger : AppColors.cardBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color: hasError ? AppColors.danger : AppColors.gold,
+                  width: 1.5),
+            ),
+          ),
+          onChanged: onChanged,
+        ),
+      );
   final int _quantity = 1;
   Map<String, dynamic>? _serverQuote;
   bool _isCalculatingPrice = true;
@@ -170,13 +216,32 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
   int _priceRequestGeneration = 0;
 
   // AI Design Generation State
-  bool _isGeneratingAi = false;
   String? _aiGeneratedImageUrl;
   String? _aiPrompt;
   bool _aiConfirmed = false;
-  String? _aiGenerationMessage;
 
   bool _submittingOrder = false;
+
+  // Live sign preview capture (sent to the AI as the exact reference design).
+  final GlobalKey _previewKey = GlobalKey();
+  bool _capturing = false;
+
+  Future<String?> _capturePreview() async {
+    try {
+      setState(() => _capturing = true);
+      await WidgetsBinding.instance.endOfFrame;
+      final boundary = _previewKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final image = await boundary.toImage(pixelRatio: 2);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      return data == null ? null : base64Encode(data.buffer.asUint8List());
+    } catch (_) {
+      return null;
+    } finally {
+      if (mounted) setState(() => _capturing = false);
+    }
+  }
 
   @override
   void initState() {
@@ -187,6 +252,8 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
 
   @override
   void dispose() {
+    _widthCtrl.dispose();
+    _heightCtrl.dispose();
     _textCtrl.dispose();
     _addressCtrl.dispose();
     _priceDebounce?.cancel();
@@ -280,70 +347,8 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
     return isValid;
   }
 
-  Future<void> _generateAiDesign() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please enter signboard text first.'),
-            backgroundColor: AppColors.warning),
-      );
-      return;
-    }
-
-    setState(() {
-      _isGeneratingAi = true;
-      _aiConfirmed = false;
-      _aiGenerationMessage = '🎨 Generating 3D Signboard Concept... Please wait';
-    });
-
-    try {
-      // Same AI chat route that already produces design images in the AI chat.
-      // Plain color names are used because the AI ignores hex codes.
-      final prompt =
-          'Create a 3D LED signboard design with the name "$text". '
-          'Follow these selections EXACTLY and do not change them: '
-          'the letters and their LED glow must be $_textColorName in color '
-          '(not gold unless the color is Gold); '
-          'backing panel material: ${_selectedBacking['name']}; '
-          'font style: ${_selectedFont.name} (${_selectedFont.category} lettering); '
-          'sign size: ${_widthFt.toStringAsFixed(1)} ft wide by ${_heightFt.toStringAsFixed(1)} ft high. '
-          'Show it as a photorealistic 3D sign mounted on a modern storefront facade. '
-          'The letters must be spelled exactly "$text" and be $_textColorName.';
-      final res = await widget.api.chat(prompt);
-      String? imageUrl = (res['imageUrl'] ?? res['image'])?.toString();
-      if (imageUrl == null || imageUrl.trim().isEmpty) {
-        final match = RegExp(r'!\[[^\]]*\]\((https?://[^)\s]+)\)')
-            .firstMatch(res['reply']?.toString() ?? '');
-        imageUrl = match?.group(1);
-      }
-      if (imageUrl == null || imageUrl.trim().isEmpty) {
-        throw const ApiException(
-            'The AI did not return an image this time. Please try again.');
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _aiGeneratedImageUrl = imageUrl;
-        _aiPrompt = prompt;
-        _aiGenerationMessage = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _aiGenerationMessage = e.toString();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('AI Generation note: $e'),
-            backgroundColor: AppColors.warning),
-      );
-    } finally {
-      if (mounted) setState(() => _isGeneratingAi = false);
-    }
-  }
-
-  Future<void> _submitSignageOrder({bool retryAfterPriceChange = true}) async {
+  Future<void> _submitSignageOrder(
+      {bool retryAfterPriceChange = true, PaymentChoice? choice}) async {
     final text = _textCtrl.text.trim();
     final address = _structuredAddress?.fullDisplayAddress.isNotEmpty == true
         ? _structuredAddress!.fullDisplayAddress
@@ -406,7 +411,11 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
         'deliveryAddress': _structuredAddress?.toMap(),
         'saveAddress': _structuredAddress?.saveToProfile ?? false,
         'estimatedPrice': estimatedPrice,
-        'aiGeneratedImageUrl': _aiConfirmed ? _aiGeneratedImageUrl : null,
+        'aiGeneratedImageUrl': _aiConfirmed &&
+                _aiGeneratedImageUrl != null &&
+                !_aiGeneratedImageUrl!.startsWith('data:')
+            ? _aiGeneratedImageUrl
+            : null,
         'aiPrompt': _aiConfirmed ? _aiPrompt : null,
         'idempotencyKey':
             '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32).toRadixString(16)}',
@@ -414,6 +423,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
       };
 
       final order = await widget.api.createOrder(orderSpecs);
+      AiPreviewCard.clearCache('signage'); // order placed: start fresh next time
       final orderNo = order['id']?.toString() ?? '';
 
       if (!mounted) return;
@@ -428,6 +438,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
           orderNo: orderNo,
           amount: estimatedPrice,
           description: 'Signboard order $orderNo',
+          choice: choice,
         );
       } catch (_) {
         paid = false;
@@ -488,7 +499,8 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
             ) ??
             false;
         if (accepted && mounted) {
-          await _submitSignageOrder(retryAfterPriceChange: false);
+          await _submitSignageOrder(
+              retryAfterPriceChange: false, choice: choice);
         }
         return;
       }
@@ -567,7 +579,9 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           // ── Live Wall & Signboard Preview Stage (Neon Adda style) ─────────
-          Container(
+          RepaintBoundary(
+            key: _previewKey,
+            child: Container(
             height: 230,
             width: double.infinity,
             decoration: BoxDecoration(
@@ -645,6 +659,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                   ),
                 ),
                 // Dimensions overlay badge
+                if (!_capturing)
                 Positioned(
                   bottom: 12,
                   right: 14,
@@ -665,6 +680,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                   ),
                 ),
                 // Backing style badge
+                if (!_capturing)
                 Positioned(
                   top: 12,
                   left: 14,
@@ -685,6 +701,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                   ),
                 ),
               ],
+            ),
             ),
           ),
           const SizedBox(height: 20),
@@ -894,20 +911,34 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                             TextStyle(color: AppColors.midGray, fontSize: 12)),
                     Expanded(
                       child: Slider(
-                        value: _widthFt,
+                        value: _widthFt.clamp(1.0, 10.0),
                         min: 1.0,
                         max: 10.0,
                         divisions: 18,
                         activeColor: AppColors.gold,
                         onChanged: (v) {
-                          setState(() => _widthFt = v);
+                          setState(() {
+                            _widthFt = v;
+                            _widthCtrl.text = v.toStringAsFixed(1);
+                            _widthError = false;
+                          });
                           _scheduleServerQuote();
                         },
                       ),
                     ),
-                    Text('${_widthFt.toStringAsFixed(1)} ft',
-                        style: const TextStyle(
-                            color: AppColors.navy, fontSize: 12)),
+                    _dimensionField(
+                      controller: _widthCtrl,
+                      hasError: _widthError,
+                      onChanged: (text) {
+                        final v = double.tryParse(text.trim());
+                        final ok = v != null && v >= _minWidthFt && v <= _maxWidthFt;
+                        setState(() => _widthError = !ok);
+                        if (ok) {
+                          setState(() => _widthFt = v);
+                          _scheduleServerQuote();
+                        }
+                      },
+                    ),
                   ],
                 ),
                 Row(
@@ -917,176 +948,94 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                             TextStyle(color: AppColors.midGray, fontSize: 12)),
                     Expanded(
                       child: Slider(
-                        value: _heightFt,
+                        value: _heightFt.clamp(0.5, 5.0),
                         min: 0.5,
                         max: 5.0,
                         divisions: 18,
                         activeColor: AppColors.gold,
                         onChanged: (v) {
-                          setState(() => _heightFt = v);
+                          setState(() {
+                            _heightFt = v;
+                            _heightCtrl.text = v.toStringAsFixed(1);
+                            _heightError = false;
+                          });
                           _scheduleServerQuote();
                         },
                       ),
                     ),
-                    Text('${_heightFt.toStringAsFixed(1)} ft',
-                        style: const TextStyle(
-                            color: AppColors.navy, fontSize: 12)),
+                    _dimensionField(
+                      controller: _heightCtrl,
+                      hasError: _heightError,
+                      onChanged: (text) {
+                        final v = double.tryParse(text.trim());
+                        final ok =
+                            v != null && v >= _minHeightFt && v <= _maxHeightFt;
+                        setState(() => _heightError = !ok);
+                        if (ok) {
+                          setState(() => _heightFt = v);
+                          _scheduleServerQuote();
+                        }
+                      },
+                    ),
                   ],
                 ),
+                if (_widthError || _heightError)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Enter width ${_minWidthFt.toStringAsFixed(0)}-${_maxWidthFt.toStringAsFixed(0)} ft and height $_minHeightFt-${_maxHeightFt.toStringAsFixed(0)} ft.',
+                      style: const TextStyle(
+                          color: AppColors.danger,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 20),
 
-          // ── Order & Create AI Button & Preview ──────────────────────────────
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.gold.withValues(alpha: .4)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.auto_awesome, color: AppColors.gold, size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text('Order & Create: AI Storefront Preview',
-                          style: TextStyle(
-                              color: AppColors.navy,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                    'Generate an actual photorealistic AI visualization of your custom sign installed on a storefront facade before final checkout.',
-                    style: TextStyle(
-                        color: AppColors.textBody, fontSize: 11, height: 1.3)),
-                const SizedBox(height: 14),
-                if (_aiGeneratedImageUrl != null) ...[
-                  GestureDetector(
-                    onTap: () => showDialog<void>(
-                      context: context,
-                      builder: (ctx) => Dialog(
-                        backgroundColor: Colors.black,
-                        insetPadding: EdgeInsets.zero,
-                        child: Stack(children: [
-                          InteractiveViewer(
-                            child: Image.network(_aiGeneratedImageUrl!,
-                                fit: BoxFit.contain),
-                          ),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white),
-                              onPressed: () => Navigator.pop(ctx),
-                            ),
-                          ),
-                        ]),
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        _aiGeneratedImageUrl!,
-                        height: 200,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, progress) =>
-                            progress == null
-                                ? child
-                                : Container(
-                                    height: 200,
-                                    color: AppColors.softGray,
-                                    child: const Center(
-                                        child: CircularProgressIndicator(
-                                            color: AppColors.gold)),
-                                  ),
-                        errorBuilder: (_, __, ___) => Container(
-                          height: 140,
-                          color: AppColors.softGray,
-                          child: const Center(
-                              child: Text('Could not load the design image',
-                                  style: TextStyle(color: AppColors.goldDark))),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text('Tap the image to view it full screen',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-                  const SizedBox(height: 10),
-                  if (_aiConfirmed)
-                    const Row(
-                      children: [
-                        Icon(Icons.check_circle,
-                            color: AppColors.success, size: 16),
-                        SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                              'Design selected - it will be attached to your order',
-                              style: TextStyle(
-                                  color: AppColors.success,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700)),
-                        ),
-                      ],
-                    )
-                  else
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _isGeneratingAi
-                            ? null
-                            : () => setState(() => _aiConfirmed = true),
-                        icon: const Icon(Icons.check, size: 16),
-                        label: const Text('Use this design'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.gold,
-                          foregroundColor: AppColors.navyDeep,
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                ],
-                if (_aiGenerationMessage != null &&
-                    _aiGeneratedImageUrl == null) ...[
-                  Text(
-                    _aiGenerationMessage!,
-                    style:
-                        const TextStyle(color: AppColors.warning, fontSize: 12),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isGeneratingAi ? null : _generateAiDesign,
-                        icon: _isGeneratingAi
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: AppColors.gold))
-                            : const Icon(Icons.auto_awesome_outlined, size: 16),
-                        label: Text(_isGeneratingAi
-                            ? 'Generating AI...'
-                            : (_aiGeneratedImageUrl != null
-                                ? 'Regenerate AI Preview'
-                                : 'Generate AI Preview')),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          // ── Order & Create: AI Storefront Preview (shared card) ────────────
+          AiPreviewCard(
+            api: widget.api,
+            cacheScope: 'signage',
+            ready: _textCtrl.text.trim().isNotEmpty,
+            notReadyMessage:
+                'Enter your signboard text above to see the AI preview.',
+            selectionKey: [
+              _textCtrl.text.trim(),
+              _selectedFont.name,
+              _textColorName,
+              _selectedBacking['id'],
+              _selectedWall['id'],
+              _widthFt.toStringAsFixed(1),
+              _heightFt.toStringAsFixed(1),
+            ].join('|'),
+            buildRequest: () async {
+              final text = _textCtrl.text.trim();
+              final reference = await _capturePreview();
+              return {
+                if (reference != null) 'referenceImage': reference,
+                'category': 'Signage',
+                'signType': 'Signboard',
+                'businessText': text,
+                'font': '${_selectedFont.name} (${_selectedFont.category})',
+                'color': _textColorName,
+                'background': '${_selectedBacking['name']}',
+                'style': '${_selectedWall['name']} wall',
+                'dimensions':
+                    '${_widthFt.toStringAsFixed(1)} ft wide x ${_heightFt.toStringAsFixed(1)} ft high',
+              };
+            },
+            promptSummary: () =>
+                'Create a 3D LED signboard design with the name "${_textCtrl.text.trim()}". '
+                'Letters and LED glow: $_textColorName; backing: ${_selectedBacking['name']}; '
+                'font: ${_selectedFont.name}; size: ${_widthFt.toStringAsFixed(1)} x ${_heightFt.toStringAsFixed(1)} ft.',
+            onChanged: (url, prompt, confirmed) {
+              _aiGeneratedImageUrl = url;
+              _aiPrompt = prompt;
+              _aiConfirmed = confirmed;
+            },
           ),
           const SizedBox(height: 20),
 
@@ -1183,35 +1132,46 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _submittingOrder ||
-                            _isCalculatingPrice ||
-                            _calculatedPrice == null ||
-                            _minimumOrderShortfall > 0
-                        ? null
-                        : _submitSignageOrder,
-                    icon: _submittingOrder
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: AppColors.navy))
-                        : const Icon(Icons.shopping_bag_rounded),
-                    label: Text(
-                      _submittingOrder
-                          ? 'Submitting Order...'
-                          : _isCalculatingPrice
-                              ? 'Calculating server price...'
-                              : _pricingError != null
-                                  ? 'Retry price calculation'
-                                  : _minimumOrderShortfall > 0
-                                      ? 'Minimum order ${money(2500)}'
-                                      : 'Order Signboard (${money(_calculatedPrice)})',
+                if (_calculatedPrice != null && _pricingError == null)
+                  PaymentOptionsPanel(
+                    embedded: true,
+                    allowTypeChoice: true,
+                    amount: _calculatedPrice!,
+                    launched: _submittingOrder,
+                    enabled: !_submittingOrder &&
+                        !_isCalculatingPrice &&
+                        _minimumOrderShortfall <= 0,
+                    buttonLabel: _submittingOrder
+                        ? 'Submitting Order...'
+                        : _isCalculatingPrice
+                            ? 'Calculating server price...'
+                            : _minimumOrderShortfall > 0
+                                ? 'Minimum order ${money(2500)}'
+                                : null,
+                    onPay: (method, upiId, type, {bank, wallet}) =>
+                        _submitSignageOrder(
+                            choice: PaymentChoice(method, type,
+                                upiId: upiId, bank: bank, wallet: wallet)),
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _isCalculatingPrice
+                          ? null
+                          : () => unawaited(_refreshServerQuote()),
+                      icon: _isCalculatingPrice
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: AppColors.navy))
+                          : const Icon(Icons.refresh),
+                      label: Text(_isCalculatingPrice
+                          ? 'Calculating server price...'
+                          : 'Retry price calculation'),
                     ),
                   ),
-                ),
               ],
             ),
           ),

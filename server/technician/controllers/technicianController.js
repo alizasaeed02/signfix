@@ -19,4 +19,6 @@ async function readAllNotifications(req,res){const result=await repo.pool().quer
 async function registerDevice(req,res){await require('../../database').registerDeviceToken(req.user.id,req.body.token,req.body.platform);res.status(201).json({registered:true});}
 async function unregisterDevice(req,res){const result=await repo.pool().query('UPDATE device_tokens SET active=FALSE,last_seen_at=NOW() WHERE user_id=$1 AND token=$2',[req.user.id,req.body.token]);res.json({unregistered:Boolean(result.rowCount)});}
 async function reviews(req,res){res.json(await require('../../services/reviewService').technician(req.user.id));}
-module.exports={dashboard,profile,updateProfile,listJobs,getJob,navigation,updateStatus,addEvidence,addMaterial,shareLocation,requestOtp,confirm,notifications,readNotification,readAllNotifications,registerDevice,unregisterDevice,reviews};
+async function createSiteRequest(req,res){res.status(201).json(await require('../services/siteRequestService').create(req.user,req.body));}
+async function listSiteRequests(req,res){res.json({data:await require('../services/siteRequestService').list(req.user)});}
+module.exports={createSiteRequest,listSiteRequests,dashboard,profile,updateProfile,listJobs,getJob,navigation,updateStatus,addEvidence,addMaterial,shareLocation,requestOtp,confirm,notifications,readNotification,readAllNotifications,registerDevice,unregisterDevice,reviews};

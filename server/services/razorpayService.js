@@ -15,10 +15,10 @@ function assertConfigured() {
     });
 }
 
-async function request(path, options = {}) {
+async function requestOnce(path, options = {}) {
   assertConfigured();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(`https://api.razorpay.com/v1${path}`, {
       ...options,
@@ -31,24 +31,56 @@ async function request(path, options = {}) {
         ...options.headers,
       },
     });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok)
+    const text = await response.text().catch(() => "");
+    let body = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch (_) {
+      body = {};
+    }
+    if (!response.ok) {
+      console.error(
+        `[razorpay] ${options.method || "GET"} ${path} -> ${response.status}: ${text.slice(0, 500)}`,
+      );
       throw Object.assign(
         new Error(
-          body?.error?.description || "Payment provider request failed",
+          body?.error?.description ||
+            `Payment provider request failed (HTTP ${response.status})`,
         ),
-        { status: 502, providerCode: body?.error?.code },
+        {
+          status: 502,
+          providerCode: body?.error?.code,
+          providerHttpStatus: response.status,
+        },
       );
+    }
     return body;
   } catch (error) {
     if (error.name === "AbortError")
       throw Object.assign(new Error("Payment provider timed out"), {
         status: 504,
         providerCode: "NETWORK_TIMEOUT",
+        providerHttpStatus: 504,
       });
     throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Transient gateway failures (5xx, timeouts, network drops) are retried once.
+// Order creation is safe to repeat: an unused Razorpay order is harmless.
+async function request(path, options = {}) {
+  try {
+    return await requestOnce(path, options);
+  } catch (error) {
+    const transient =
+      error.providerHttpStatus >= 500 ||
+      error.providerCode === "NETWORK_TIMEOUT" ||
+      (error.providerHttpStatus === undefined && error.status !== 503);
+    if (!transient || path !== "/orders") throw error;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return requestOnce(path, options);
   }
 }
 
