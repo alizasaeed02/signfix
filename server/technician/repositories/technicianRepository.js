@@ -16,6 +16,14 @@ async function getProfile(userId) {
     FROM users u JOIN technicians t ON t.user_id=u.id WHERE u.id=$1`, [userId]);
   const profile = rows[0];
   if (!profile) return null;
+  // Approval state for the app: 'pending_approval' until an admin activates the account.
+  profile.accountStatus = profile.status === 'active' ? 'active' : 'pending_approval';
+  // Work location / city = first entry of the technician's service areas.
+  let areas = profile.serviceAreas;
+  if (typeof areas === 'string') { try { areas = JSON.parse(areas); } catch (_) { areas = []; } }
+  areas = Array.isArray(areas) ? areas : [];
+  profile.serviceAreas = areas;
+  profile.workLocation = areas[0] || '';
   // Auto-fill emergency contact from admin company settings if not set
   if (!profile.emergencyContact) {
     try {
@@ -34,7 +42,7 @@ async function updateProfile(userId, data) {
   try {
     await client.query('BEGIN');
     await client.query(`UPDATE users SET name=COALESCE($2,name),mobile=COALESCE($3,mobile),updated_at=NOW() WHERE id=$1`, [userId,data.name,data.mobile]);
-    await client.query(`UPDATE technicians SET emergency_contact=COALESCE($2,emergency_contact),profile_photo_url=COALESCE($3,profile_photo_url),location_sharing=COALESCE($4,location_sharing),skills=COALESCE($5,skills) WHERE user_id=$1`, [userId,data.emergencyContact,data.profilePhotoUrl,data.locationSharing,data.skills ? JSON.stringify(data.skills) : null]);
+    await client.query(`UPDATE technicians SET emergency_contact=COALESCE($2,emergency_contact),profile_photo_url=COALESCE($3,profile_photo_url),location_sharing=COALESCE($4,location_sharing),skills=COALESCE($5,skills),service_areas=COALESCE($6,service_areas) WHERE user_id=$1`, [userId,data.emergencyContact,data.profilePhotoUrl,data.locationSharing,data.skills ? JSON.stringify(data.skills) : null,data.workLocation ? JSON.stringify([data.workLocation]) : null]);
     await client.query('COMMIT');
     return getProfile(userId);
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }

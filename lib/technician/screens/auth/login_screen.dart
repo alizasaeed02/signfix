@@ -397,7 +397,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 14),
                       const Center(
                         child: Text(
-                          'New accounts require admin approval before access.',
+                          'Sign in with Google or phone to get started. You can explore the app right away; live jobs unlock after admin approval.',
                           style:
                               TextStyle(fontSize: 11, color: AppColors.midGray),
                           textAlign: TextAlign.center,

@@ -403,6 +403,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ])),
                     const SizedBox(height: 20),
 
+                    // ── Complete your profile (pending approval / missing details) ──
+                    ValueListenableBuilder<String>(
+                      valueListenable: widget.api.accountStatus,
+                      builder: (context, status, _) {
+                        final missing =
+                            (p['workLocation'] ?? '').toString().trim().isEmpty ||
+                                skills.isEmpty;
+                        if (status != 'pending_approval' && !missing) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: _CompleteProfileCard(
+                            api: widget.api,
+                            profile: p,
+                            pending: status == 'pending_approval',
+                            onSaved: _pullToRefresh,
+                          ),
+                        );
+                      },
+                    ),
+
                     // ── Performance ────────────────────────────────────────────────
                     Row(children: [
                       _PerfCard('${p['totalJobsCompleted'] ?? 0}', 'Jobs Done',
@@ -742,5 +764,178 @@ class _InfoRow extends StatelessWidget {
                         color: valueColor ?? AppColors.charcoal)),
               ])),
         ],
+      );
+}
+
+// ── Complete profile card (work location, skills, mobile) ────────────────────
+// Option A of the approval workflow: the technician fills in their own details.
+// (Option B: an admin can enter the same details from the Admin Panel.)
+class _CompleteProfileCard extends StatefulWidget {
+  const _CompleteProfileCard({
+    required this.api,
+    required this.profile,
+    required this.pending,
+    required this.onSaved,
+  });
+  final TechnicianApi api;
+  final Map<String, dynamic> profile;
+  final bool pending;
+  final Future<void> Function() onSaved;
+
+  @override
+  State<_CompleteProfileCard> createState() => _CompleteProfileCardState();
+}
+
+class _CompleteProfileCardState extends State<_CompleteProfileCard> {
+  late final TextEditingController _city;
+  late final TextEditingController _skills;
+  late final TextEditingController _mobile;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.profile;
+    _city = TextEditingController(text: p['workLocation']?.toString() ?? '');
+    _skills = TextEditingController(
+        text: (p['skills'] as List? ?? const []).join(', '));
+    _mobile = TextEditingController(
+        text: (p['mobile'] ?? p['phone'])?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _city.dispose();
+    _skills.dispose();
+    _mobile.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final city = _city.text.trim();
+    final skills = _skills.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final mobile = _mobile.text.trim();
+    final digits = mobile.replaceAll(RegExp(r'[^0-9]'), '');
+    String? err;
+    if (city.length < 2) {
+      err = 'Please enter your work location / city.';
+    } else if (skills.isEmpty) {
+      err = 'Please enter at least one skill (separate with commas).';
+    } else if (digits.length < 8) {
+      err = 'Please enter a valid mobile number.';
+    }
+    if (err != null) {
+      setState(() => _error = err);
+      return;
+    }
+    setState(() {
+      _error = null;
+      _saving = true;
+    });
+    try {
+      await widget.api.updateProfile({
+        'workLocation': city,
+        'skills': skills,
+        'mobile': mobile,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(widget.pending
+            ? 'Profile submitted. An admin will review and approve your account.'
+            : 'Profile saved.'),
+        backgroundColor: AppColors.success,
+      ));
+      await widget.onSaved();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.gold.withValues(alpha: .5)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.assignment_ind_outlined,
+                color: AppColors.gold, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                  widget.pending
+                      ? 'Complete your profile'
+                      : 'Add your work details',
+                  style: const TextStyle(
+                      color: AppColors.navy,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15)),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+              widget.pending
+                  ? 'Submit your details so an admin can review and approve your account. You can also ask an admin to fill them in for you.'
+                  : 'Your work location and skills help us assign the right jobs.',
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontSize: 12, height: 1.3)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _city,
+            textCapitalization: TextCapitalization.words,
+            style: const TextStyle(color: AppColors.charcoal),
+            decoration: const InputDecoration(
+              labelText: 'Work location / city *',
+              prefixIcon: Icon(Icons.location_city_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _skills,
+            style: const TextStyle(color: AppColors.charcoal),
+            decoration: const InputDecoration(
+              labelText: 'Skills *',
+              hintText: 'e.g. LED repair, installation, wiring',
+              prefixIcon: Icon(Icons.build_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _mobile,
+            keyboardType: TextInputType.phone,
+            style: const TextStyle(color: AppColors.charcoal),
+            decoration: const InputDecoration(
+              labelText: 'Mobile number *',
+              prefixIcon: Icon(Icons.phone_outlined),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!,
+                style: const TextStyle(
+                    color: AppColors.danger,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: LoadingButton(
+              loading: _saving,
+              onPressed: _submit,
+              child: const Text('Submit'),
+            ),
+          ),
+        ]),
       );
 }

@@ -22,6 +22,14 @@ export default function TechniciansPage() {
   async function open(id) {
     setDetail(await get(`/api/admin/operations/technicians/${id}`));
   }
+  // Approve (activate) a technician waiting for approval. The technician's app
+  // unlocks on its next status check - no new sign-up needed.
+  async function approve(id) {
+    if (!window.confirm("Approve this technician? They will be able to accept live jobs.")) return;
+    await post(`/api/admin/operations/technicians/${id}/approve`, {});
+    await load();
+    if (detail) await open(id);
+  }
   async function save(event) {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
@@ -53,10 +61,35 @@ export default function TechniciansPage() {
             </button>
             <h1>{detail.name}</h1>
             <small>
-              {detail.email} · <StatusBadge>{detail.status}</StatusBadge>
+              {detail.email} ·{" "}
+              <StatusBadge>{detail.accountStatus || detail.status}</StatusBadge>
             </small>
           </div>
+          {detail.accountStatus === "pending_approval" && (
+            <button className="primary" onClick={() => approve(detail.id)}>
+              Approve (Activate)
+            </button>
+          )}
         </div>
+        <article className="card profile-section">
+          <h2>Profile details</h2>
+          <p>
+            <b>Mobile:</b> {detail.mobile || "—"}
+          </p>
+          <p>
+            <b>Work location / city:</b>{" "}
+            {(detail.serviceAreas || []).join(", ") || "Not submitted yet"}
+          </p>
+          <p>
+            <b>Skills:</b> {(detail.skills || []).join(", ") || "Not submitted yet"}
+          </p>
+          {detail.accountStatus === "pending_approval" && (
+            <small>
+              Missing details? Use Edit on the technician list to fill them in
+              for the technician, then approve.
+            </small>
+          )}
+        </article>
         <article className="card profile-section">
           <h2>Jobs</h2>
           {detail.jobs.map((job) => (
@@ -80,7 +113,7 @@ export default function TechniciansPage() {
   const fields = [
     ...technicianFields,
     ...(!form?.id ? [["password", "Temporary password", "password"]] : []),
-    ["serviceAreas", "Service areas"],
+    ["serviceAreas", "Work location / city"],
     ["skills", "Skills"],
   ];
   return (
@@ -132,7 +165,13 @@ export default function TechniciansPage() {
                 )}
               </label>
             ))}
-            {form.id && (
+            {form.id && form.accountStatus === "pending_approval" && (
+              <p className="technician-field technician-field-status">
+                <b>Pending approval.</b> Save the details here, then use the
+                Approve button in the list.
+              </p>
+            )}
+            {form.id && form.accountStatus !== "pending_approval" && (
               <label className="technician-field technician-field-status">
                 Status
                 <select name="status" defaultValue={form.status}>
@@ -192,7 +231,7 @@ export default function TechniciansPage() {
                 </td>
                 <td>{(row.serviceAreas || []).join(", ") || "—"}</td>
                 <td>
-                  <StatusBadge>{row.status}</StatusBadge>
+                  <StatusBadge>{row.accountStatus || row.status}</StatusBadge>
                 </td>
                 <td>{row.assigned}</td>
                 <td>{row.accepted}</td>
@@ -205,6 +244,11 @@ export default function TechniciansPage() {
                 <td>{row.rating || "—"}</td>
                 <td>
                   <span className="table-actions">
+                    {row.accountStatus === "pending_approval" && (
+                      <button className="primary" onClick={() => approve(row.id)}>
+                        Approve
+                      </button>
+                    )}
                     <button className="outline" onClick={() => open(row.id)}>
                       <Eye size={14} />
                       Jobs

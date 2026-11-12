@@ -81,6 +81,20 @@ function issueToken(user) {
     audience: jwtAudience,
   });
 }
+// Technician approval state. A technician who has registered (verified_at set)
+// but is not yet activated by an admin has users.status = 'pending_verification'.
+// Pending technicians may sign in and explore the app (read-only); live job
+// actions are blocked by requireApprovedTechnician until an admin approves.
+const isPendingTechnician = (u) =>
+  Boolean(
+    u &&
+      u.role === "technician" &&
+      u.status === "pending_verification" &&
+      (u.verifiedAt || u.verified_at),
+  );
+const technicianAccountStatus = (u) =>
+  u.status === "active" ? "active" : "pending_approval";
+
 async function safeUser(user) {
   const permissions =
     user.role === "super_admin"
@@ -99,6 +113,9 @@ async function safeUser(user) {
     email: user.email,
     ...(user.mobile ? { mobile: user.mobile } : {}),
     role: user.role,
+    ...(user.role === "technician"
+      ? { accountStatus: technicianAccountStatus(user) }
+      : {}),
     permissions,
   };
 }
@@ -121,7 +138,7 @@ async function login(req, res) {
       code: "INVALID_PASSWORD",
     });
   }
-  if (user.status !== "active")
+  if (user.status !== "active" && !isPendingTechnician(user))
     return res
       .status(403)
       .json({
@@ -289,23 +306,41 @@ async function googleAuth(req, res) {
     try {
       await client.query("BEGIN");
       await database.ensureAuthSchema();
+      // Technician portal: one-tap sign-up creates a technician account that
+      // waits for admin approval. Everything else creates a customer.
+      const asTechnician = portal === "technician";
+      const roleName = asTechnician ? "technician" : "customer";
       const roleRow = (
-        await client.query("SELECT id FROM roles WHERE name='customer' LIMIT 1")
+        await client.query("SELECT id FROM roles WHERE name=$1 LIMIT 1", [roleName])
       ).rows[0];
       if (!roleRow) {
-        throw Object.assign(new Error("Customer role is not configured"), { status: 503 });
+        throw Object.assign(new Error(`${roleName} role is not configured`), { status: 503 });
       }
       const randomPassword = crypto.randomBytes(24).toString("hex");
       const passwordHash = await bcrypt.hash(randomPassword, 10);
       const userInsert = await client.query(
-        "INSERT INTO users(role_id,name,email,password_hash,status,verified_at) VALUES($1,$2,$3,$4,'active',NOW())",
-        [roleRow.id, verifiedName || "Google Customer", verifiedEmail, passwordHash]
+        `INSERT INTO users(role_id,name,email,password_hash,status,verified_at) VALUES($1,$2,$3,$4,${
+          asTechnician ? "'pending_verification'" : "'active'"
+        },NOW())`,
+        [
+          roleRow.id,
+          verifiedName || (asTechnician ? "Google Technician" : "Google Customer"),
+          verifiedEmail,
+          passwordHash,
+        ]
       );
       const newUserId = userInsert.insertId;
-      await client.query(
-        "INSERT INTO customers(user_id,company_name,address) VALUES($1,$2,$3)",
-        [newUserId, "Individual Customer", JSON.stringify({})]
-      );
+      if (asTechnician) {
+        await client.query(
+          "INSERT INTO technicians(user_id,service_areas,skills) VALUES($1,$2,$3)",
+          [newUserId, JSON.stringify([]), JSON.stringify([])]
+        );
+      } else {
+        await client.query(
+          "INSERT INTO customers(user_id,company_name,address) VALUES($1,$2,$3)",
+          [newUserId, "Individual Customer", JSON.stringify({})]
+        );
+      }
       await client.query("COMMIT");
       user = await database.findUserByEmail(verifiedEmail);
     } catch (regErr) {
@@ -313,7 +348,9 @@ async function googleAuth(req, res) {
         await client.query("ROLLBACK");
       } catch (_) {}
       console.error("[auth] Google auto-registration failed:", regErr);
-      return res.status(500).json({ error: "Failed to create customer account with Google." });
+      return res.status(500).json({
+        error: `Failed to create ${portal === "technician" ? "technician" : "customer"} account with Google.`,
+      });
     } finally {
       client.release();
     }
@@ -323,7 +360,7 @@ async function googleAuth(req, res) {
     return res.status(404).json({ error: "User account could not be found or created." });
   }
 
-  if (user.status !== "active") {
+  if (user.status !== "active" && !isPendingTechnician(user)) {
     if (user.status === "pending_verification" && user.role === "customer") {
       await database
         .getPool()
@@ -527,12 +564,14 @@ async function firebasePhoneAuth(req, res) {
   }
 
   if (!user) {
-    if (role !== "customer") {
+    // Customers sign up instantly; technicians sign up as "pending approval".
+    if (role !== "customer" && role !== "technician") {
       return res.status(403).json({
-        error: "No technician account is registered with this phone number.",
-        code: "NOT_A_TECHNICIAN",
+        error: "Phone sign-up is not available for this account type.",
+        code: "NOT_A_CUSTOMER",
       });
     }
+    const asTechnician = role === "technician";
     const email = `phone_${nationalNumber}@users.signfix.in`;
     const emailConflict = await database.findUserByEmail(email);
     if (emailConflict) {
@@ -546,31 +585,44 @@ async function firebasePhoneAuth(req, res) {
     try {
       await client.query("BEGIN");
       const customerRole = (
-        await client.query("SELECT id FROM roles WHERE name='customer' LIMIT 1")
+        await client.query("SELECT id FROM roles WHERE name=$1 LIMIT 1", [
+          asTechnician ? "technician" : "customer",
+        ])
       ).rows[0];
       if (!customerRole) {
-        throw Object.assign(new Error("Customer role is not configured"), {
-          status: 503,
-        });
+        throw Object.assign(
+          new Error(`${asTechnician ? "Technician" : "Customer"} role is not configured`),
+          { status: 503 },
+        );
       }
       const randomPassword = crypto.randomBytes(24).toString("hex");
       const passwordHash = await bcrypt.hash(randomPassword, 10);
       const userId = (
         await client.query(
-          "INSERT INTO users(role_id,name,email,mobile,password_hash,status,verified_at) VALUES($1,$2,$3,$4,$5,'active',NOW())",
+          `INSERT INTO users(role_id,name,email,mobile,password_hash,status,verified_at) VALUES($1,$2,$3,$4,$5,${
+            asTechnician ? "'pending_verification'" : "'active'"
+          },NOW())`,
           [
             customerRole.id,
-            req.body.name?.trim() || "Phone Customer",
+            req.body.name?.trim() ||
+              (asTechnician ? "Phone Technician" : "Phone Customer"),
             email,
             mobile,
             passwordHash,
           ],
         )
       ).insertId;
-      await client.query(
-        "INSERT INTO customers(user_id,company_name,address) VALUES($1,$2,$3)",
-        [userId, "Individual Customer", JSON.stringify({})],
-      );
+      if (asTechnician) {
+        await client.query(
+          "INSERT INTO technicians(user_id,service_areas,skills) VALUES($1,$2,$3)",
+          [userId, JSON.stringify([]), JSON.stringify([])],
+        );
+      } else {
+        await client.query(
+          "INSERT INTO customers(user_id,company_name,address) VALUES($1,$2,$3)",
+          [userId, "Individual Customer", JSON.stringify({})],
+        );
+      }
       await client.query("COMMIT");
       user = (
         await database
@@ -598,7 +650,7 @@ async function firebasePhoneAuth(req, res) {
     }
   }
 
-  if (user.status !== "active") {
+  if (user.status !== "active" && !isPendingTechnician(user)) {
     if (user.status === "pending_verification" && user.role === "customer") {
       await database
         .getPool()

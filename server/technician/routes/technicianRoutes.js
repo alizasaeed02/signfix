@@ -5,6 +5,7 @@ const schemas=require('../validation/technicianSchemas');
 const validate=require('../../middleware/validate');
 const upload=require('../middleware/technicianUpload');
 const {authenticate,authorize}=require('../../middleware/auth');
+const approved=require('../middleware/requireApprovedTechnician'); // live job actions need an approved (active) technician
 
 const id=z.string().regex(/^\d+$/);
 const validateId=(req,res,next)=>{const parsed=id.safeParse(req.params.jobId);if(!parsed.success)return res.status(422).json({error:'Invalid job id'});next();};
@@ -16,13 +17,13 @@ router.get('/profile',controller.profile);
 router.patch('/profile',validate(schemas.profile),controller.updateProfile);
 router.get('/jobs',validateJobQuery,controller.listJobs);
 router.get('/jobs/:jobId',validateId,controller.getJob);
-router.get('/jobs/:jobId/navigation',validateId,controller.navigation);
-router.patch('/jobs/:jobId/status',validateId,validate(schemas.statusUpdate),controller.updateStatus);
-router.post('/jobs/:jobId/evidence',validateId,upload.array('photos',10),validateEvidence,controller.addEvidence);
-router.post('/jobs/:jobId/materials',validateId,validate(schemas.material),controller.addMaterial);
-router.post('/jobs/:jobId/location',validateId,validate(schemas.location),controller.shareLocation);
-router.post('/jobs/:jobId/completion-otp',validateId,controller.requestOtp);
-router.post('/jobs/:jobId/confirm',validateId,validate(schemas.confirmation),controller.confirm);
+router.get('/jobs/:jobId/navigation',approved,validateId,controller.navigation);
+router.patch('/jobs/:jobId/status',approved,validateId,validate(schemas.statusUpdate),controller.updateStatus);
+router.post('/jobs/:jobId/evidence',approved,validateId,upload.array('photos',10),validateEvidence,controller.addEvidence);
+router.post('/jobs/:jobId/materials',approved,validateId,validate(schemas.material),controller.addMaterial);
+router.post('/jobs/:jobId/location',approved,validateId,validate(schemas.location),controller.shareLocation);
+router.post('/jobs/:jobId/completion-otp',approved,validateId,controller.requestOtp);
+router.post('/jobs/:jobId/confirm',approved,validateId,validate(schemas.confirmation),controller.confirm);
 router.get('/notifications',controller.notifications);
 router.patch('/notifications/read-all',controller.readAllNotifications);
 router.patch('/notifications/:id/read',controller.readNotification);

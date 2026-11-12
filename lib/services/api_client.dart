@@ -1008,14 +1008,118 @@ class ApiClient {
   Future<Map<String, dynamic>> generateDesignPreview(
       Map<String, dynamic> data) async {
     try {
-      return await _request('POST', '/customer/designs/preview',
-          body: data, timeout: const Duration(seconds: 120));
+      final res = await _request('POST', '/customer/designs/preview',
+          body: _toPreviewPayload(data),
+          timeout: const Duration(seconds: 120));
+      // Guide response: { success, imageUrl, specifications }
+      final nested = res['data'];
+      if ((res['imageUrl'] == null) && nested is Map) {
+        return Map<String, dynamic>.from(nested);
+      }
+      return res;
     } on ApiException catch (e) {
       final routeMissing =
           e.statusCode == 404 || e.message.toLowerCase().contains('was not found');
       if (!routeMissing) rethrow;
       return _previewViaChat(data);
     }
+  }
+
+  // Backing materials the preview API accepts (backend guide).
+  static const _previewMaterials = [
+    'Glossy Black Acrylic',
+    'Clear Acrylic Backing',
+    'Brushed Gold ACP',
+    'Silver Aluminium Panel',
+    'Architectural Walnut Wood',
+  ];
+
+  // Named colours -> RGB, used to turn a picked colour into a name.
+  static const _namedColors = <String, int>{
+    'Gold': 0xFFF5A800,
+    'White': 0xFFFFFFFF,
+    'Navy': 0xFF0F1B3D,
+    'Deep Blue': 0xFF1A2F6B,
+    'Soft Gray': 0xFFEDEFF3,
+    'Black': 0xFF000000,
+    'Red': 0xFFE53935,
+    'Green': 0xFF2E9E5B,
+    'Blue': 0xFF2F6FDE,
+    'Orange': 0xFFF57C00,
+    'Yellow': 0xFFFFEB3B,
+    'Pink': 0xFFE91E63,
+    'Purple': 0xFF7B5CD6,
+  };
+
+  static String _previewColor(String? raw) {
+    final v = (raw ?? '').trim();
+    if (v.isEmpty) return 'Gold';
+    for (final name in _namedColors.keys) {
+      if (name.toLowerCase() == v.toLowerCase()) return name;
+    }
+    final hex = v.replaceFirst('#', '');
+    final rgb = int.tryParse(hex.length == 8 ? hex.substring(2) : hex, radix: 16);
+    if (rgb == null) return v; // already a colour word (e.g. "Warm White")
+    int dist(int a, int b) {
+      final dr = ((a >> 16) & 255) - ((b >> 16) & 255);
+      final dg = ((a >> 8) & 255) - ((b >> 8) & 255);
+      final db = (a & 255) - (b & 255);
+      return dr * dr + dg * dg + db * db;
+    }
+
+    String best = 'Gold';
+    var bestD = 1 << 30;
+    _namedColors.forEach((name, c) {
+      final d = dist(rgb, c);
+      if (d < bestD) {
+        bestD = d;
+        best = name;
+      }
+    });
+    return best;
+  }
+
+  static String _previewMaterial(String? raw) {
+    final v = (raw ?? '').toLowerCase();
+    for (final m in _previewMaterials) {
+      if (v.contains(m.toLowerCase())) return m;
+    }
+    if (v.contains('clear')) return 'Clear Acrylic Backing';
+    if (v.contains('wood') || v.contains('walnut')) {
+      return 'Architectural Walnut Wood';
+    }
+    if (v.contains('alumin') || v.contains('steel') || v.contains('silver')) {
+      return 'Silver Aluminium Panel';
+    }
+    if (v.contains('acp') || v.contains('gold')) return 'Brushed Gold ACP';
+    return 'Glossy Black Acrylic';
+  }
+
+  /// Request body exactly as the backend guide:
+  /// { businessName, color, material, width, height, unit }.
+  Map<String, dynamic> _toPreviewPayload(Map<String, dynamic> d) {
+    double? num_(dynamic x) =>
+        x is num ? x.toDouble() : double.tryParse('${x ?? ''}');
+    var width = num_(d['width']);
+    var height = num_(d['height']);
+    if (width == null || height == null) {
+      // fall back to a "10 ft x 3 ft" style string
+      final m = RegExp(r'([\d.]+)\D+?([\d.]+)')
+          .firstMatch(d['dimensions']?.toString() ?? '');
+      width ??= double.tryParse(m?.group(1) ?? '');
+      height ??= double.tryParse(m?.group(2) ?? '');
+    }
+    return {
+      'businessName': (d['businessName'] ?? d['businessText'] ?? 'SignFix')
+          .toString()
+          .trim(),
+      'color': _previewColor(d['color']?.toString()),
+      'material': _previewMaterial(
+          (d['material'] ?? d['background'])?.toString()),
+      'width': width ?? 3.0,
+      'height': height ?? 1.0,
+      'unit': (d['unit'] ?? 'ft').toString(),
+    };
   }
 
   Future<Map<String, dynamic>> _previewViaChat(Map<String, dynamic> d) async {
