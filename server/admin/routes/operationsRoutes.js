@@ -39,6 +39,7 @@ router.post(
   c.createTechnician,
 );
 router.get("/technicians/:id", c.technician);
+router.post("/technicians/:id/approve", c.approveTechnician);
 router.patch(
   "/technicians/:id",
   validate(

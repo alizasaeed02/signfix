@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -192,6 +193,43 @@ class TechnicianApi {
   String? _token;
   String? get token => _token;
 
+  // ── Admin approval state ──────────────────────────────────────────────────
+  /// 'active' or 'pending_approval'. Pending technicians can explore the app
+  /// but cannot accept / start / complete jobs until an admin approves them.
+  final ValueNotifier<String> accountStatus = ValueNotifier<String>('active');
+  bool get isPendingApproval => accountStatus.value == 'pending_approval';
+
+  static const approvalMessage = 'You can accept jobs only after admin approval.';
+
+  void _setStatusFrom(Map<dynamic, dynamic>? m) {
+    if (m == null) return;
+    final raw = (m['accountStatus'] ?? m['status'])?.toString();
+    if (raw == null || raw.isEmpty) return;
+    accountStatus.value =
+        (raw == 'pending_approval' || raw == 'pending_verification')
+            ? 'pending_approval'
+            : 'active';
+  }
+
+  /// Re-reads the approval state from the server (called on app open, every
+  /// 30s and when the app resumes) so approval unlocks the app automatically.
+  Future<void> refreshAccountStatus() async {
+    if (mockMode || _token == null) return;
+    try {
+      _setStatusFrom(await getProfile());
+    } catch (_) {
+      // offline / session issue: keep the last known state
+    }
+  }
+
+  /// Front-end half of the restriction (the server enforces it too).
+  void _requireApproved() {
+    if (!mockMode && isPendingApproval) {
+      throw const ApiException(approvalMessage,
+          statusCode: 403, code: 'TECHNICIAN_NOT_APPROVED');
+    }
+  }
+
   Future<void> restoreSession() async {
     final p = await SharedPreferences.getInstance();
     _token = p.getString('technician_token');
@@ -230,6 +268,7 @@ class TechnicianApi {
       throw const ApiException('Login token was not returned.');
     }
     _token = token;
+    _setStatusFrom(d['user'] as Map?);
     final p = await SharedPreferences.getInstance();
     await p.setString('technician_token', token);
   }
@@ -259,6 +298,7 @@ class TechnicianApi {
       throw const ApiException('Login token was not returned.');
     }
     _token = token;
+    _setStatusFrom(d['user'] as Map?);
     final p = await SharedPreferences.getInstance();
     await p.setString('technician_token', token);
   }
@@ -285,6 +325,7 @@ class TechnicianApi {
       throw const ApiException('Login token was not returned.');
     }
     _token = token;
+    _setStatusFrom(data['user'] as Map?);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('technician_token', token);
     final email = data['user']?['email']?.toString();
@@ -295,6 +336,7 @@ class TechnicianApi {
 
   Future<void> logout() async {
     _token = null;
+    accountStatus.value = 'active';
     final p = await SharedPreferences.getInstance();
     await p.remove('technician_token');
   }
@@ -418,6 +460,7 @@ class TechnicianApi {
 
   Future<Map<String, dynamic>> updateJob(String id, String status,
       {Map<String, dynamic>? extra}) async {
+    _requireApproved();
     if (mockMode) {
       await Future.delayed(_mockDelay);
       final job = _mockJobs.firstWhere((j) => j['id'] == id, orElse: () => {});
@@ -558,21 +601,30 @@ class TechnicianApi {
   Future<Map<String, dynamic>> getJobDetail(String jobId) =>
       _request('GET', '/technician/jobs/${Uri.encodeComponent(jobId)}');
 
-  Future<Map<String, dynamic>> sendCompletionOtp(String jobId) => _request(
-      'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/completion-otp');
+  Future<Map<String, dynamic>> sendCompletionOtp(String jobId) {
+    _requireApproved();
+    return _request('POST',
+        '/technician/jobs/${Uri.encodeComponent(jobId)}/completion-otp');
+  }
 
-  Future<Map<String, dynamic>> confirmJobCompletion(String jobId, String otp) =>
-      _request('POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/confirm',
-          body: {'otp': otp});
+  Future<Map<String, dynamic>> confirmJobCompletion(String jobId, String otp) {
+    _requireApproved();
+    return _request(
+        'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/confirm',
+        body: {'otp': otp});
+  }
 
   Future<Map<String, dynamic>> updateLocation(
-          String jobId, double lat, double lng) =>
-      _request(
-          'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/location',
-          body: {'latitude': lat, 'longitude': lng});
+      String jobId, double lat, double lng) {
+    _requireApproved();
+    return _request(
+        'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/location',
+        body: {'latitude': lat, 'longitude': lng});
+  }
 
   Future<Map<String, dynamic>> uploadEvidence(
       String jobId, List<File> photos, String notes) async {
+    _requireApproved();
     final request = http.MultipartRequest(
         'POST',
         Uri.parse(
@@ -679,6 +731,11 @@ class TechnicianApi {
       final field = d is Map ? d['field']?.toString() : null;
       final code = d is Map ? d['code']?.toString() : null;
       String errorMsg = m?.toString() ?? 'Request failed (${r.statusCode}).';
+      // Server says this technician is not approved yet -> lock the app UI.
+      if (code == 'TECHNICIAN_NOT_APPROVED') {
+        accountStatus.value = 'pending_approval';
+        errorMsg = approvalMessage;
+      }
       // Auto-clear token on 401
       if (r.statusCode == 401) {
         _token = null;

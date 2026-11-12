@@ -151,7 +151,7 @@ async function updateTicket(req, res) {
 }
 async function technicians(req, res) {
   const { rows } = await pool().query(
-    `SELECT t.id,u.name,u.email,u.mobile,u.status,t.service_areas AS "serviceAreas",COUNT(j.id) assigned,COUNT(CASE WHEN j.status='accepted' THEN 1 END) accepted,COUNT(CASE WHEN j.status IN ('completed','closed') THEN 1 END) completed,ROUND(AVG(CASE WHEN j.accepted_at IS NOT NULL AND (j.closed_at IS NOT NULL OR j.work_completed_at IS NOT NULL) THEN TIMESTAMPDIFF(SECOND,j.accepted_at,COALESCE(j.closed_at,j.work_completed_at))/3600 END),1) AS "averageCompletionHours",ROUND(AVG(r.rating),1) AS rating FROM technicians t JOIN users u ON u.id=t.user_id LEFT JOIN technician_jobs j ON j.technician_id=t.id LEFT JOIN reviews r ON r.job_id=j.id GROUP BY t.id,u.id ORDER BY u.name`,
+    `SELECT t.id,u.name,u.email,u.mobile,u.status,CASE WHEN u.status='pending_verification' THEN 'pending_approval' ELSE u.status END AS "accountStatus",t.skills,t.service_areas AS "serviceAreas",COUNT(j.id) assigned,COUNT(CASE WHEN j.status='accepted' THEN 1 END) accepted,COUNT(CASE WHEN j.status IN ('completed','closed') THEN 1 END) completed,ROUND(AVG(CASE WHEN j.accepted_at IS NOT NULL AND (j.closed_at IS NOT NULL OR j.work_completed_at IS NOT NULL) THEN TIMESTAMPDIFF(SECOND,j.accepted_at,COALESCE(j.closed_at,j.work_completed_at))/3600 END),1) AS "averageCompletionHours",ROUND(AVG(r.rating),1) AS rating FROM technicians t JOIN users u ON u.id=t.user_id LEFT JOIN technician_jobs j ON j.technician_id=t.id LEFT JOIN reviews r ON r.job_id=j.id GROUP BY t.id,u.id ORDER BY u.name`,
   );
   res.json({ data: rows, total: rows.length });
 }
@@ -199,7 +199,7 @@ async function createTechnician(req, res) {
 async function technician(req, res) {
   const base = (
     await pool().query(
-      `SELECT t.id,t.user_id AS "userId",u.name,u.email,u.mobile,u.status,t.service_areas AS "serviceAreas",t.skills FROM technicians t JOIN users u ON u.id=t.user_id WHERE t.id=$1`,
+      `SELECT t.id,t.user_id AS "userId",u.name,u.email,u.mobile,u.status,CASE WHEN u.status='pending_verification' THEN 'pending_approval' ELSE u.status END AS "accountStatus",t.service_areas AS "serviceAreas",t.skills FROM technicians t JOIN users u ON u.id=t.user_id WHERE t.id=$1`,
       [req.params.id],
     )
   ).rows[0];
@@ -244,11 +244,44 @@ async function updateTechnician(req, res) {
   );
   res.json(await technicianValue(req.params.id));
 }
+// Approve (activate) a technician who signed up and is waiting for admin
+// approval. Takes effect immediately: the technician app unlocks on its next
+// status check, no new sign-up needed.
+async function approveTechnician(req, res) {
+  const cur = await technicianValue(req.params.id);
+  if (cur.status === "disabled")
+    throw Object.assign(
+      new Error("This technician account is disabled. Re-enable it first."),
+      { status: 409 },
+    );
+  await pool().query(
+    "UPDATE users SET status='active',verified_at=COALESCE(verified_at,NOW()),updated_at=NOW() WHERE id=$1",
+    [cur.userId],
+  );
+  await pool()
+    .query(
+      "INSERT INTO audit_logs(user_id,action,entity_type,entity_id,metadata) VALUES($1,'technician.approved','technician',$2,$3)",
+      [req.user.id, req.params.id, JSON.stringify({ technicianUserId: cur.userId })],
+    )
+    .catch(() => {});
+  try {
+    await require("../../services/notificationService").sendEvent(
+      cur.userId,
+      "technician.approved",
+      "Account approved",
+      "Your SignFix technician account has been approved. You can now accept live jobs.",
+      {},
+    );
+  } catch (_) {
+    /* notification is best-effort */
+  }
+  res.json(await technicianValue(req.params.id));
+}
 async function technicianValue(id) {
   return (
     (
       await pool().query(
-        'SELECT t.id,t.user_id AS "userId",u.name,u.email,u.mobile,u.status,t.service_areas AS "serviceAreas",t.skills FROM technicians t JOIN users u ON u.id=t.user_id WHERE t.id=$1',
+        `SELECT t.id,t.user_id AS "userId",u.name,u.email,u.mobile,u.status,CASE WHEN u.status='pending_verification' THEN 'pending_approval' ELSE u.status END AS "accountStatus",t.service_areas AS "serviceAreas",t.skills FROM technicians t JOIN users u ON u.id=t.user_id WHERE t.id=$1`,
         [id],
       )
     ).rows[0] ||
@@ -380,6 +413,7 @@ module.exports = {
   createTechnician,
   technician,
   updateTechnician,
+  approveTechnician,
   assets,
   createAsset,
   asset,

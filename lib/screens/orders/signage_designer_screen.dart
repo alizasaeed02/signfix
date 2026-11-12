@@ -1021,6 +1021,10 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                 'businessText': text,
                 'font': '${_selectedFont.name} (${_selectedFont.category})',
                 'color': _textColorName,
+                'material': '${_selectedBacking['name']}',
+                'width': _widthFt,
+                'height': _heightFt,
+                'unit': 'ft',
                 'background': '${_selectedBacking['name']}',
                 'style': '${_selectedWall['name']} wall',
                 'dimensions':

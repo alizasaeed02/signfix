@@ -1956,6 +1956,10 @@ class _OrderWizardState extends State<OrderWizard> {
           if (_textDesign != null)
             'color':
                 '#${_textDesign!.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+          'material': material,
+          'width': double.tryParse(length.text),
+          'height': double.tryParse(width.text),
+          'unit': unit,
           'background': '$material backing, ${lighting.toLowerCase()}',
           if (_sideWalling != null && _sideWalling!.isNotEmpty)
             'style': 'Side walling: $_sideWalling',

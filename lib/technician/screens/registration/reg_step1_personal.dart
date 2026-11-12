@@ -1,6 +1,4 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import 'registration_data.dart';
@@ -20,7 +18,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
   final _mobile = TextEditingController();
   final _email = TextEditingController();
   final _doj = TextEditingController();
-  String? _photoPath;
   String? _error;
 
   @override
@@ -29,7 +26,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
     _name.text = widget.data.fullName;
     _email.text = widget.data.email;
     _doj.text = widget.data.dateOfJoining;
-    _photoPath = widget.data.profilePhotoPath;
 
     // +91 prefix for India
     _mobile.addListener(() {
@@ -66,50 +62,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
     super.dispose();
   }
 
-  Future<void> _pickPhoto() async {
-    final src = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: AppColors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppColors.cardBorder,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 14),
-          const Text('Profile Photo',
-              style: TextStyle(
-                  color: AppColors.navy,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16)),
-          const SizedBox(height: 10),
-          ListTile(
-            leading:
-                const Icon(Icons.camera_alt_outlined, color: AppColors.gold),
-            title: const Text('Take Photo',
-                style: TextStyle(color: AppColors.navy)),
-            onTap: () => Navigator.pop(context, ImageSource.camera),
-          ),
-          ListTile(
-            leading:
-                const Icon(Icons.photo_library_outlined, color: AppColors.info),
-            title: const Text('Choose from Gallery',
-                style: TextStyle(color: AppColors.navy)),
-            onTap: () => Navigator.pop(context, ImageSource.gallery),
-          ),
-        ]),
-      ),
-    );
-    if (src == null) return;
-    final img = await ImagePicker().pickImage(source: src, imageQuality: 80);
-    if (img != null && mounted) setState(() => _photoPath = img.path);
-  }
-
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -134,11 +86,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
   }
 
   bool _validate() {
-    if (_photoPath == null || _photoPath!.isEmpty) {
-      setState(
-          () => _error = 'Profile photo is required. Please add your photo.');
-      return false;
-    }
     if (_name.text.trim().isEmpty) {
       setState(() => _error = 'Full name is required.');
       return false;
@@ -188,7 +135,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
     widget.data.mobile = '+91$numberAfter91';
     widget.data.email = _email.text.trim();
     widget.data.dateOfJoining = _doj.text;
-    widget.data.profilePhotoPath = _photoPath;
     Navigator.push(
         context,
         MaterialPageRoute(
@@ -227,58 +173,6 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
               const Text('Step 1 of 3 — Tell us about yourself',
                   style: TextStyle(color: AppColors.midGray, fontSize: 13)),
               const SizedBox(height: 24),
-
-              // Photo
-              Center(
-                  child: GestureDetector(
-                onTap: _pickPhoto,
-                child: Stack(children: [
-                  Container(
-                    width: 90,
-                    height: 90,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.white,
-                      border: Border.all(
-                          color: _photoPath == null
-                              ? AppColors.danger.withValues(alpha: .7)
-                              : AppColors.gold.withValues(alpha: .4),
-                          width: 2),
-                    ),
-                    child: ClipOval(
-                      child: _photoPath != null
-                          ? Image.file(File(_photoPath!), fit: BoxFit.cover)
-                          : const Icon(Icons.person_outline,
-                              size: 40, color: AppColors.midGray),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(
-                          color: AppColors.gold, shape: BoxShape.circle),
-                      child: const Icon(Icons.camera_alt_rounded,
-                          size: 14, color: AppColors.navy),
-                    ),
-                  ),
-                ]),
-              )),
-              const SizedBox(height: 6),
-              Center(
-                  child: Text(
-                _photoPath == null
-                    ? 'Profile Photo (Required) *'
-                    : 'Profile Photo Added ✓',
-                style: TextStyle(
-                    color: _photoPath == null
-                        ? AppColors.danger
-                        : AppColors.success,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
-              )),
-              const SizedBox(height: 22),
 
               RegField(
                   ctrl: _name,

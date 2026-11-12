@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/app_theme.dart';
@@ -16,15 +17,53 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   int _unread = 0;
   late final List<Widget> _pages;
   final _notifKey = GlobalKey<NotificationsScreenState>();
+  Timer? _statusTimer;
+  String _lastStatus = 'active';
+
+  // Approval state: when an admin approves the account the banner disappears
+  // and the app unlocks without signing in again.
+  void _onStatusChanged() {
+    final now = widget.api.accountStatus.value;
+    if (_lastStatus == 'pending_approval' && now == 'active' && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Your account has been approved. All features are unlocked!'),
+        backgroundColor: AppColors.success,
+      ));
+    }
+    _lastStatus = now;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.api.refreshAccountStatus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    widget.api.accountStatus.removeListener(_onStatusChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _lastStatus = widget.api.accountStatus.value;
+    widget.api.accountStatus.addListener(_onStatusChanged);
+    widget.api.refreshAccountStatus();
+    _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      // Only needed while waiting for approval.
+      if (widget.api.isPendingApproval) widget.api.refreshAccountStatus();
+    });
     _pages = [
       DashboardScreen(api: widget.api, onGoToJobs: () => _goTo(1)),
       JobsScreen(api: widget.api, onLogout: widget.onLogout),
@@ -141,7 +180,17 @@ class _AppShellState extends State<AppShell> {
               ]),
             ],
           ),
-          body: SafeArea(child: IndexedStack(index: _index, children: _pages)),
+          body: SafeArea(
+            child: Column(children: [
+              ValueListenableBuilder<String>(
+                valueListenable: widget.api.accountStatus,
+                builder: (context, status, _) => status == 'pending_approval'
+                    ? _PendingApprovalBanner(onCompleteProfile: () => _goTo(4))
+                    : const SizedBox.shrink(),
+              ),
+              Expanded(child: IndexedStack(index: _index, children: _pages)),
+            ]),
+          ),
           bottomNavigationBar: SafeArea(
             top: false,
             child: Padding(
@@ -198,6 +247,41 @@ class _AppShellState extends State<AppShell> {
           ),
         ), // close Scaffold
       ); // close PopScope
+}
+
+// ── Pending approval banner ───────────────────────────────────────────────────
+class _PendingApprovalBanner extends StatelessWidget {
+  const _PendingApprovalBanner({required this.onCompleteProfile});
+  final VoidCallback onCompleteProfile;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: AppColors.warning.withValues(alpha: .16),
+        child: InkWell(
+          onTap: onCompleteProfile,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(children: [
+              Icon(Icons.hourglass_top_rounded,
+                  size: 18, color: AppColors.goldDark),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Your account is pending approval. Complete your profile to start accepting live jobs.',
+                  style: TextStyle(
+                      color: AppColors.navy,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3),
+                ),
+              ),
+              SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded,
+                  size: 20, color: AppColors.goldDark),
+            ]),
+          ),
+        ),
+      );
 }
 
 // ── Custom Nav Item ───────────────────────────────────────────────────────────

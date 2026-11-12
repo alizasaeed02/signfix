@@ -967,6 +967,11 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
               'signType': 'LED signboard powered by an LED driver',
               'businessText': _selectedProduct.name,
               'background': 'Backlit LED signboard on a storefront facade',
+              // Power supply has no sign size of its own: use the neon /
+              // sign length entered in the wattage calculator.
+              'width': double.tryParse(_neonLengthCtrl.text.trim()) ?? 15.0,
+              'height': 1.0,
+              'unit': 'ft',
               'dimensions':
                   '${_selectedProduct.wattage}W ${_selectedProduct.outputVoltage}',
               'notes':
