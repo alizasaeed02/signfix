@@ -259,7 +259,7 @@ class _NotificationBellState extends State<_NotificationBell> {
     try {
       final list = await widget.api.notifications();
       if (mounted) {
-        setState(() => _unread = list.where((n) => n['read'] != true).length);
+        setState(() => _unread = list.where((n) => !notificationIsRead(n)).length);
       }
     } catch (_) {}
   }
@@ -827,7 +827,6 @@ class _PromoBannerSlider extends StatelessWidget {
             itemCount: banners.length,
             itemBuilder: (_, i) {
               final cfg = _badgeConfig(banners[i].id);
-              final topBadge = cfg['top']!;
               final ctaBadge = cfg['cta']!;
               return GestureDetector(
                 onTap: () => onBannerTap(banners[i].id),
@@ -853,41 +852,6 @@ class _PromoBannerSlider extends StatelessWidget {
                                 Colors.transparent,
                               ],
                             ),
-                          ),
-                        ),
-                      ),
-                      // Top-left badge (cashback / category label)
-                      Positioned(
-                        top: 14,
-                        left: 14,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: topBadge.color.withValues(alpha: .92),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.navy.withValues(alpha: .3),
-                                blurRadius: 8,
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(topBadge.icon,
-                                  size: 14, color: AppColors.white),
-                              const SizedBox(width: 5),
-                              Text(
-                                topBadge.label,
-                                style: const TextStyle(
-                                  color: AppColors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
                           ),
                         ),
                       ),

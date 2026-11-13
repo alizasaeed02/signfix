@@ -961,7 +961,7 @@ class _SavedAddressesSheetState extends State<_SavedAddressesSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not delete address: $e'),
+            content: Text('Could not delete address: ${userMessage(e)}'),
             backgroundColor: AppColors.danger,
           ),
         );
@@ -1010,7 +1010,7 @@ class _SavedAddressesSheetState extends State<_SavedAddressesSheet> {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save address: $e'),
+            content: Text('Failed to save address: ${userMessage(e)}'),
             backgroundColor: AppColors.danger,
           ),
         );

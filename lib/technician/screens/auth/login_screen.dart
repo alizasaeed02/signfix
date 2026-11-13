@@ -8,6 +8,7 @@ import '../registration/reg_step1_personal.dart';
 import '../registration/registration_data.dart';
 import '../../../screens/auth/forgot_password_screen.dart';
 import '../../../screens/auth/phone_otp_login_screen.dart';
+import '../../../core/app_utils.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -64,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final str = e.toString().replaceFirst('Exception: ', '');
+        final str = userMessage(e);
         setState(() => _error = str);
       }
     } finally {
@@ -128,7 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final errStr = e.toString();
+        final errStr = userMessage(e);
         final errLower = errStr.toLowerCase();
         setState(() {
           if (errLower.contains('email') || errLower.contains('no account')) {

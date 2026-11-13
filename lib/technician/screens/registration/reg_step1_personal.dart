@@ -192,14 +192,15 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text('OTP will be sent to this number',
-                  style: TextStyle(color: AppColors.midGray, fontSize: 11)),
               const SizedBox(height: 12),
               RegField(
                   ctrl: _email,
                   label: 'Work Email *',
                   icon: Icons.mail_outline,
                   type: TextInputType.emailAddress),
+              const SizedBox(height: 4),
+              const Text('The verification OTP will be sent to this email',
+                  style: TextStyle(color: AppColors.midGray, fontSize: 11)),
               const SizedBox(height: 12),
 
               // Date picker

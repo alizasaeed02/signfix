@@ -6,6 +6,7 @@ import '../../widgets/common.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import 'phone_otp_login_screen.dart';
+import '../../core/app_utils.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -63,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final str = e.toString().replaceFirst('Exception: ', '');
+        final str = userMessage(e);
         setState(() => _error = str);
       }
     } finally {
@@ -127,7 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final errStr = e.toString();
+        final errStr = userMessage(e);
         final errLower = errStr.toLowerCase();
         setState(() {
           if (errLower.contains('email') || errLower.contains('no account')) {

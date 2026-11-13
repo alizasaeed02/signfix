@@ -707,6 +707,42 @@ async function me(req, res) {
   res.json({ user: await safeUser(user) });
 }
 
+// Say WHICH of email / mobile is already taken. Before, one query matched
+// "email OR mobile" and always answered "email or mobile already registered",
+// so an already-used email made every mobile number look registered.
+async function assertAccountAvailable(db, email, mobile) {
+  const byEmail = (
+    await db.query("SELECT id FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1", [email])
+  ).rows[0];
+  if (byEmail)
+    throw Object.assign(
+      new Error("This email is already registered. Please sign in or use a different email."),
+      { status: 409, field: "email" },
+    );
+  const byMobile = (
+    await db.query("SELECT id FROM users WHERE mobile=$1 LIMIT 1", [mobile])
+  ).rows[0];
+  if (byMobile)
+    throw Object.assign(
+      new Error("This mobile number is already registered. Please use a different number."),
+      { status: 409, field: "mobile" },
+    );
+}
+
+// Same idea when the database itself reports a duplicate key.
+function duplicateAccountError(error) {
+  const text = String(error.sqlMessage || error.message || "").toLowerCase();
+  const message = text.includes("mobile")
+    ? "This mobile number is already registered. Please use a different number."
+    : text.includes("email")
+      ? "This email is already registered. Please sign in or use a different email."
+      : "This email or mobile number is already registered.";
+  return Object.assign(new Error(message), {
+    status: 409,
+    field: text.includes("mobile") ? "mobile" : text.includes("email") ? "email" : undefined,
+  });
+}
+
 async function sendTechnicianRegistrationOtp(req, res) {
   const email = normalizeEmail(req.body.email);
   if (!email)
@@ -718,17 +754,7 @@ async function sendTechnicianRegistrationOtp(req, res) {
     throw Object.assign(new Error("Enter a valid mobile number"), {
       status: 422,
     });
-  const existing = await database
-    .getPool()
-    .query(
-      "SELECT id FROM users WHERE LOWER(email)=LOWER($1) OR mobile=$2 LIMIT 1",
-      [email, mobile],
-    );
-  if (existing.rows[0])
-    throw Object.assign(
-      new Error("This email or mobile number is already registered. Please sign in."),
-      { status: 409 },
-    );
+  await assertAccountAvailable(database.getPool(), email, mobile);
 
   const otp = String(crypto.randomInt(100000, 1000000));
   const pool = database.getPool();
@@ -860,17 +886,7 @@ async function registerTechnician(req, res) {
       throw Object.assign(new Error("Technician role is not configured"), {
         status: 503,
       });
-    const existing = (
-      await client.query(
-        "SELECT id FROM users WHERE LOWER(email)=LOWER($1) OR mobile=$2 LIMIT 1",
-        [req.body.email, mobile],
-      )
-    ).rows[0];
-    if (existing)
-      throw Object.assign(
-        new Error("Email or mobile number is already registered."),
-        { status: 409 },
-      );
+    await assertAccountAvailable(client, req.body.email, mobile);
 
     const passwordHash = await bcrypt.hash(req.body.password, 12);
     const userId = (
@@ -903,11 +919,8 @@ async function registerTechnician(req, res) {
       await client.query("ROLLBACK");
     } catch (_) {}
     console.error('[auth] registerTechnician DB error:', { code: error.code, message: error.message, sqlMessage: error.sqlMessage });
-    if (error.code === "ER_DUP_ENTRY")
-      throw Object.assign(
-        new Error("Email or mobile number is already registered."),
-        { status: 409 },
-      );
+    if (error.code === "ER_DUP_ENTRY") throw duplicateAccountError(error);
+    if (error.status === 409) throw error; // already says which field clashed
     if (error.code === "ER_NO_REFERENCED_ROW_2")
       throw Object.assign(
         new Error("Registration failed due to a configuration issue. Please contact support."),
@@ -995,11 +1008,7 @@ async function register(req, res) {
     try {
       await client.query("ROLLBACK");
     } catch (_) {}
-    if (e.code === "ER_DUP_ENTRY")
-      throw Object.assign(
-        new Error("Email or mobile number is already registered"),
-        { status: 409 },
-      );
+    if (e.code === "ER_DUP_ENTRY") throw duplicateAccountError(e);
     if (
       e.code === "ER_NO_REFERENCED_ROW" ||
       e.code === "ER_NO_REFERENCED_ROW_2"

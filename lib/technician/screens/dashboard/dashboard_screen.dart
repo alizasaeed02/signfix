@@ -253,6 +253,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         _StatCard("${d['completed'] ?? 0}", 'Completed',
                             Icons.check_circle_outline, AppColors.success),
                       ]),
+                      // Field service requests raised by this technician.
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        _StatCard("${d['serviceRequests'] ?? 0}",
+                            'Service Requests', Icons.build_circle_outlined,
+                            AppColors.info),
+                        const SizedBox(width: 12),
+                        _StatCard("${d['serviceRequestsPending'] ?? 0}",
+                            'Requests Pending', Icons.hourglass_top_rounded,
+                            AppColors.warning),
+                      ]),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        _StatCard("${d['serviceRequestsConverted'] ?? 0}",
+                            'Converted to Ticket',
+                            Icons.confirmation_number_outlined,
+                            AppColors.success),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox.shrink()),
+                      ]),
                     ]);
                   },
                 ),

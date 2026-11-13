@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../activity/quotation_detail_screen.dart';
+import '../../core/app_utils.dart' show userMessage;
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen(
@@ -165,13 +166,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (mounted) _showDetail(context, notification, color, icon);
   }
 
+  void _toast(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(userMessage(e))));
+  }
+
   Future<void> _markAllRead() async {
-    await widget.api.markAllNotificationsRead();
+    try {
+      await widget.api.markAllNotificationsRead();
+    } catch (e) {
+      _toast(e);
+    }
     _reload();
   }
 
   Future<void> _markRead(String id) async {
-    await widget.api.markNotificationRead(id);
+    try {
+      await widget.api.markNotificationRead(id);
+    } catch (e) {
+      _toast(e);
+    }
     _reload();
   }
 
@@ -354,7 +369,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               );
             }
 
-            final unread = list.where((n) => n['read'] != true).length;
+            final unread = list.where((n) => !_isRead(n)).length;
 
             return RefreshIndicator(
               color: AppColors.gold,

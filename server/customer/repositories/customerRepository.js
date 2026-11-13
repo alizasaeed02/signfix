@@ -1059,7 +1059,25 @@ async function generateDesign(userId, id, customPrompt) {
   };
 }
 
-async function generateDesignPreview(userId, data) {
+async function generateDesignPreview(userId, input) {
+  // Accepts the guide fields { businessName, color, material, width, height, unit }
+  // and the older ones (businessText, background, dimensions...).
+  const data = { ...input, businessText: input.businessName || input.businessText };
+  const unit = input.unit || "ft";
+  const w = Number(input.width);
+  const h = Number(input.height);
+  const hasSize = w > 0 && h > 0;
+  if (!data.dimensions && hasSize) data.dimensions = `${w} x ${h} ${unit}`;
+  if (!data.background && input.material) data.background = input.material;
+  const ratioText = hasSize ? `${(w / h).toFixed(1)}:1` : "2:1";
+  const specifications = {
+    businessName: data.businessText,
+    color: data.color || "Gold",
+    material: data.background || undefined,
+    width: hasSize ? w : undefined,
+    height: hasSize ? h : undefined,
+    unit,
+  };
   const category = (data.category || data.signType || "Neon").toLowerCase();
   let prompt = "";
   if (category.includes("neon")) {
@@ -1094,7 +1112,7 @@ async function generateDesignPreview(userId, data) {
     const wallName = String(data.style || "").replace(/ wall$/i, "");
     const wallDesc = wallLook[wallName.toLowerCase()] || wallName || "a dark textured wall";
     const colorName = data.color || "Gold";
-    prompt = `Photorealistic close-up photo of one illuminated 3D signboard fixed on ${wallDesc}, in a dark moody evening setting. The sign is a rectangular backing plate made of ${bgDesc}, with raised 3D letters mounted on the plate. The letters spell exactly "${data.businessText}" (no other words, no extra text, spelled correctly), in ${fontDesc} lettering (${fontName} typeface), colored ${colorName}, with a soft ${colorName} LED glow around the letters. The plate is a wide rectangle with proportions of about ${data.dimensions || "3 x 1.5 ft"}, centered, front view, fully visible. Do not use any other letter color, plate material, or wall.`;
+    prompt = `Photorealistic close-up photo of one illuminated 3D signboard fixed on ${wallDesc}, in a dark moody evening setting. The sign is a rectangular backing plate made of ${bgDesc}, with raised 3D letters mounted on the plate. The letters spell exactly "${data.businessText}" (no other words, no extra text, spelled correctly), in ${fontDesc} lettering (${fontName} typeface), colored ${colorName}, with a soft ${colorName} LED glow around the letters - the glow must be exactly ${colorName}, never yellow, gold, orange or green unless ${colorName} is that color. The plate is a rectangle whose width-to-height ratio is ${ratioText} (${data.dimensions || "3 x 1.5 ft"}), centered, front view, fully visible and not stretched. Do not use any other letter color, plate material, or wall.${data.notes ? ` ${String(data.notes).slice(0, 700)}` : ""}`;
   }
   // DALL-E 3 rewrites prompts by default; ask it to keep ours verbatim.
   prompt = `I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS: ${prompt}`;
@@ -1137,6 +1155,7 @@ async function generateDesignPreview(userId, data) {
           success: true,
           isRealAi: true,
           imageUrl,
+          specifications,
           prompt: editPrompt,
           disclaimer: "Concept mockup only; not final production artwork.",
         };
@@ -1169,6 +1188,7 @@ async function generateDesignPreview(userId, data) {
         success: true,
         isRealAi: true,
         imageUrl,
+        specifications,
         prompt,
         disclaimer: "Concept mockup only; not final production artwork.",
       };

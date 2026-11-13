@@ -30,10 +30,12 @@ router.post(
   ),
   controller.login,
 );
+// One password rule for technician sign-up, customer sign-up, reset and change:
+// 6 to 8 characters (same as the app) with upper, lower, number and special.
 const strongPassword = z
   .string()
-  .min(10)
-  .max(72)
+  .min(6, "Password must be 6 to 8 characters long")
+  .max(8, "Password must be 6 to 8 characters long")
   .regex(/[a-z]/, "Lowercase letter required")
   .regex(/[A-Z]/, "Uppercase letter required")
   .regex(/\d/, "Number required")

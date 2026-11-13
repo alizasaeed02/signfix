@@ -32,7 +32,7 @@ class _TechnicianServiceRequestScreenState
   bool _loading = false;
   bool _gpsLoading = false;
 
-  late Future<List<dynamic>> _mine;
+  late Future<Map<String, dynamic>> _mine;
 
   static const _categories = [
     'LED Problem',
@@ -48,7 +48,14 @@ class _TechnicianServiceRequestScreenState
     'Other',
   ];
 
-  static final _phoneRegex = RegExp(r'^\+?[0-9][0-9\s-]{6,17}$');
+  /// API rule: contactNumber is a 10-digit mobile number. Accepts +91 / 0
+  /// prefixes and spaces, returns the 10 digits (or null if invalid).
+  static String? _tenDigitMobile(String raw) {
+    var d = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (d.length == 12 && d.startsWith('91')) d = d.substring(2);
+    if (d.length == 11 && d.startsWith('0')) d = d.substring(1);
+    return RegExp(r'^\d{10}$').hasMatch(d) ? d : null;
+  }
 
   @override
   void initState() {
@@ -65,7 +72,14 @@ class _TechnicianServiceRequestScreenState
     super.dispose();
   }
 
-  void _reloadMine() => setState(() => _mine = widget.api.siteRequests());
+  void _reloadMine() {
+    // Block body on purpose: an arrow function here would hand setState the
+    // Future it assigns, which Flutter rejects ("returned a Future").
+    final future = widget.api.siteRequests();
+    setState(() {
+      _mine = future;
+    });
+  }
 
   Future<void> _pick(ImageSource source) async {
     final file =
@@ -171,8 +185,9 @@ class _TechnicianServiceRequestScreenState
       showAppError(context, 'Please enter the contact number for this site.');
       return;
     }
-    if (!_phoneRegex.hasMatch(phone)) {
-      showAppError(context, 'Enter a valid contact number (7-15 digits).');
+    final mobile = _tenDigitMobile(phone);
+    if (mobile == null) {
+      showAppError(context, 'Enter a valid 10-digit mobile number.');
       return;
     }
     if (_address.text.trim().isEmpty) {
@@ -189,8 +204,8 @@ class _TechnicianServiceRequestScreenState
     try {
       final urls = <String>[];
       for (final file in _photos) {
-        final result = await widget.api.upload(file, 'service-request', 'site');
-        if (result['url'] != null) urls.add(result['url'].toString());
+        // POST /uploads (multipart) -> absolute image URL for `photos`
+        urls.add(await widget.api.uploadSiteRequestPhoto(file));
       }
       if (urls.isEmpty) {
         throw const ApiException('Photos could not be uploaded. Try again.');
@@ -199,7 +214,7 @@ class _TechnicianServiceRequestScreenState
         'category': _category,
         'description': desc,
         'address': _address.text.trim(),
-        'contactNumber': phone,
+        'contactNumber': mobile,
         if (_contactName.text.trim().isNotEmpty)
           'contactName': _contactName.text.trim(),
         if (_position != null) 'latitude': _position!.latitude,
@@ -357,7 +372,7 @@ class _TechnicianServiceRequestScreenState
               style: const TextStyle(color: AppColors.charcoal),
               decoration: const InputDecoration(
                 labelText: 'Contact number *',
-                hintText: 'Phone number of the person at the site',
+                hintText: '10-digit mobile number of the person at the site',
                 prefixIcon: Icon(Icons.phone_outlined),
               ),
             ),
@@ -467,7 +482,7 @@ class _TechnicianServiceRequestScreenState
                     fontWeight: FontWeight.w800,
                     color: AppColors.navy)),
             const SizedBox(height: 10),
-            FutureBuilder<List<dynamic>>(
+            FutureBuilder<Map<String, dynamic>>(
               future: _mine,
               builder: (context, snap) {
                 if (snap.connectionState != ConnectionState.done) {
@@ -487,16 +502,32 @@ class _TechnicianServiceRequestScreenState
                         onPressed: _reloadMine, child: const Text('Retry')),
                   ]);
                 }
-                final items = snap.data ?? [];
+                final res = snap.data ?? const <String, dynamic>{};
+                final items = (res['data'] as List? ?? const []);
+                final counts = (res['counts'] as Map?) ?? const {};
                 if (items.isEmpty) {
                   return const Text('No requests submitted yet.',
                       style: TextStyle(color: AppColors.textMuted));
                 }
+                String n(String k) => '${counts[k] ?? 0}';
                 return Column(
-                  children: items
-                      .whereType<Map>()
-                      .map((r) => _RequestCard(request: r))
-                      .toList(),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      _CountChip(n('submitted'), 'Pending Review',
+                          _requestStatus('submitted').color),
+                      _CountChip(n('underReview'), 'Under Review',
+                          _requestStatus('under_review').color),
+                      _CountChip(n('converted'), 'Converted',
+                          _requestStatus('converted').color),
+                      _CountChip(n('rejected'), 'Rejected',
+                          _requestStatus('rejected').color),
+                    ]),
+                    const SizedBox(height: 12),
+                    ...items
+                        .whereType<Map>()
+                        .map((r) => _RequestCard(request: r)),
+                  ],
                 );
               },
             ),
@@ -506,15 +537,58 @@ class _TechnicianServiceRequestScreenState
       );
 }
 
+/// Status mapping for the UI (technician field service requests API).
+({String label, Color color}) _requestStatus(String? raw) {
+  switch ((raw ?? '').toLowerCase()) {
+    case 'submitted':
+      return (label: 'Pending Review', color: AppColors.warning); // yellow
+    case 'under_review':
+      return (label: 'Under Review', color: AppColors.info); // blue
+    case 'converted':
+      return (label: 'Converted to Ticket', color: AppColors.success); // green
+    case 'rejected':
+      return (label: 'Rejected', color: AppColors.danger); // red
+    default:
+      return (label: humanize(raw ?? 'submitted'), color: AppColors.textMuted);
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  const _CountChip(this.count, this.label, this.color);
+  final String count, label;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: .35)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(count,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 13)),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.w700, fontSize: 11)),
+        ]),
+      );
+}
+
 class _RequestCard extends StatelessWidget {
   const _RequestCard({required this.request});
   final Map request;
 
   @override
   Widget build(BuildContext context) {
-    final status = request['status']?.toString() ?? 'submitted';
-    final done = status == 'completed' || status == 'closed';
-    final color = done ? AppColors.success : AppColors.warning;
+    final st = _requestStatus(request['status']?.toString());
+    final color = st.color;
+    final ticketNo = request['ticketNo']?.toString() ?? '';
+    final adminNotes = request['adminNotes']?.toString().trim() ?? '';
+    final created = request['createdAt']?.toString() ?? '';
+    final photos = request['photos'] is List ? (request['photos'] as List).length : 0;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -526,7 +600,8 @@ class _RequestCard extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(
-            child: Text(request['id']?.toString() ?? '',
+            child: Text(
+                (request['requestNo'] ?? request['id'])?.toString() ?? '',
                 style: const TextStyle(
                     color: AppColors.gold,
                     fontWeight: FontWeight.w800,
@@ -539,7 +614,7 @@ class _RequestCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: color.withValues(alpha: .3)),
             ),
-            child: Text(humanize(status),
+            child: Text(st.label,
                 style: TextStyle(
                     fontSize: 10, fontWeight: FontWeight.w700, color: color)),
           ),
@@ -558,7 +633,11 @@ class _RequestCard extends StatelessWidget {
           const Icon(Icons.phone_outlined,
               size: 14, color: AppColors.textMuted),
           const SizedBox(width: 4),
-          Text(request['contactNumber']?.toString() ?? '',
+          Text(
+              [
+                request['contactName']?.toString() ?? '',
+                request['contactNumber']?.toString() ?? '',
+              ].where((s) => s.isNotEmpty).join(' · '),
               style:
                   const TextStyle(fontSize: 12, color: AppColors.textLight)),
         ]),
@@ -575,6 +654,37 @@ class _RequestCard extends StatelessWidget {
                     const TextStyle(fontSize: 12, color: AppColors.textLight)),
           ),
         ]),
+        if (ticketNo.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Row(children: [
+            const Icon(Icons.confirmation_number_outlined,
+                size: 14, color: AppColors.success),
+            const SizedBox(width: 4),
+            Text('Ticket: $ticketNo',
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.success,
+                    fontWeight: FontWeight.w700)),
+          ]),
+        ],
+        if (adminNotes.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text('Admin: $adminNotes',
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                  color: AppColors.textMuted)),
+        ],
+        if (created.length >= 10 || photos > 0) ...[
+          const SizedBox(height: 6),
+          Text(
+              [
+                if (created.length >= 10) created.substring(0, 10),
+                if (photos > 0) '$photos photo${photos == 1 ? '' : 's'}',
+              ].join(' · '),
+              style:
+                  const TextStyle(fontSize: 10, color: AppColors.textMuted)),
+        ],
       ]),
     );
   }

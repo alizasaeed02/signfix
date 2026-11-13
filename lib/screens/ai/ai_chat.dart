@@ -82,7 +82,19 @@ class _AiChatState extends State<AiChat> {
 
   Future<void> _saveHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKey, jsonEncode(_conversations));
+    // Inline (base64) images can be several MB: keep them on screen for this
+    // session but don't write them into the saved history.
+    final slim = _conversations.map((c) {
+      final msgs = (c['messages'] as List? ?? const []).map((m) {
+        final mm = Map<String, dynamic>.from(m as Map);
+        if ((mm['imageUrl']?.toString() ?? '').startsWith('data:')) {
+          mm.remove('imageUrl');
+        }
+        return mm;
+      }).toList();
+      return {...c, 'messages': msgs};
+    }).toList();
+    await prefs.setString(_prefsKey, jsonEncode(slim));
   }
 
   // ── Chat management ──────────────────────────────────────────────────────────
@@ -187,12 +199,23 @@ class _AiChatState extends State<AiChat> {
         'time': _timeNow(),
         if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
       });
-    } catch (_) {
-      _addMessage({
-        'role': 'ai',
-        'text': 'Support is unavailable right now. Please use the Service tab.',
-        'time': _timeNow(),
-      });
+    } catch (e) {
+      // Say what actually went wrong instead of one vague message.
+      final msg = e is ApiException ? e.message : '';
+      final lower = msg.toLowerCase();
+      final String text;
+      if (lower.contains('cannot connect') ||
+          lower.contains('could not be reached') ||
+          lower.contains('closed unexpectedly')) {
+        text = 'I could not reach SignFix. Please check your internet connection and send your message again.';
+      } else if (lower.contains('timed out')) {
+        text = 'That took too long (images can need up to 2 minutes). Please try again.';
+      } else if (e is ApiException && e.statusCode == 401) {
+        text = 'Your session has expired. Please sign in again.';
+      } else {
+        text = 'Support is unavailable right now. Please try again, or use the Service tab.';
+      }
+      _addMessage({'role': 'ai', 'text': text, 'time': _timeNow()});
     } finally {
       if (mounted) {
         setState(() => _sending = false);
@@ -551,6 +574,39 @@ class _AiChatState extends State<AiChat> {
   }
 
   // ── Generated design image (inside an AI bubble) ─────────────────────────────
+  // AI images arrive either as an https link or inline (`data:image/...;base64`).
+  Widget _chatImage(String url, {required BoxFit fit}) {
+    const failed = SizedBox(
+      height: 80,
+      child: Center(
+        child: Text('Design image could not be loaded.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+      ),
+    );
+    if (url.startsWith('data:')) {
+      try {
+        return Image.memory(base64Decode(url.substring(url.indexOf(',') + 1)),
+            fit: fit, errorBuilder: (_, __, ___) => failed);
+      } catch (_) {
+        return failed;
+      }
+    }
+    return Image.network(
+      url,
+      fit: fit,
+      loadingBuilder: (context, child, progress) => progress == null
+          ? child
+          : const SizedBox(
+              height: 160,
+              child: Center(
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppColors.gold),
+              ),
+            ),
+      errorBuilder: (_, __, ___) => failed,
+    );
+  }
+
   Widget _buildDesignImage(String url) => Padding(
         padding: EdgeInsets.zero,
         child: GestureDetector(
@@ -560,33 +616,13 @@ class _AiChatState extends State<AiChat> {
               backgroundColor: Colors.black,
               insetPadding: const EdgeInsets.all(12),
               child: InteractiveViewer(
-                child: Image.network(url, fit: BoxFit.contain),
+                child: _chatImage(url, fit: BoxFit.contain),
               ),
             ),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              url,
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) => progress == null
-                  ? child
-                  : const SizedBox(
-                      height: 160,
-                      child: Center(
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.gold),
-                      ),
-                    ),
-              errorBuilder: (_, __, ___) => const SizedBox(
-                height: 80,
-                child: Center(
-                  child: Text('Design image could not be loaded.',
-                      style: TextStyle(
-                          color: AppColors.textMuted, fontSize: 12)),
-                ),
-              ),
-            ),
+            child: _chatImage(url, fit: BoxFit.cover),
           ),
         ),
       );

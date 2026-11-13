@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/auth_service.dart';
+import '../../core/app_utils.dart';
 
 class PhoneOtpLoginScreen extends StatefulWidget {
   const PhoneOtpLoginScreen({
@@ -88,7 +89,7 @@ class _PhoneOtpLoginScreenState extends State<PhoneOtpLoginScreen> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = userMessage(error);
           _loading = false;
         });
       }
@@ -127,7 +128,7 @@ class _PhoneOtpLoginScreenState extends State<PhoneOtpLoginScreen> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = userMessage(error);
           _loading = false;
         });
       }
@@ -156,7 +157,7 @@ class _PhoneOtpLoginScreenState extends State<PhoneOtpLoginScreen> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString().replaceFirst('Exception: ', '');
+          _error = userMessage(error);
           _loading = false;
         });
       }
