@@ -7,6 +7,7 @@ import '../../services/api_client.dart';
 import 'registration_data.dart';
 import 'registration_widgets.dart';
 import 'pending_approval_screen.dart';
+import '../../../core/app_utils.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   const OtpVerificationScreen(
@@ -115,11 +116,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             widget.data.registrationVerificationToken.isNotEmpty) {
           widget.data.registrationVerificationToken = '';
         }
-        setState(() => _error = e.toString());
+        setState(() => _error = userMessage(e));
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = userMessage(e));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -145,7 +146,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             content: Text('New OTP sent to your email address.')));
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = userMessage(e));
     } finally {
       if (mounted) setState(() => _resending = false);
     }
@@ -301,7 +302,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                             height: 16,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: AppColors.gold))
-                        : const Icon(Icons.sms_outlined),
+                        : const Icon(Icons.mail_outline_rounded),
                     label: const Text('Resend OTP'),
                   )
                 : TextButton(

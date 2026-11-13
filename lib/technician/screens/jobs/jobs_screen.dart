@@ -52,9 +52,16 @@ String _stepLabel(String status) {
 
 // ── Jobs List Screen ──────────────────────────────────────────────────────────
 class JobsScreen extends StatefulWidget {
-  const JobsScreen({super.key, required this.api, required this.onLogout});
+  const JobsScreen(
+      {super.key,
+      required this.api,
+      required this.onLogout,
+      this.onGoToProfile});
   final TechnicianApi api;
   final VoidCallback onLogout;
+
+  /// Opens the Profile tab (used by the "Action Locked" dialog).
+  final VoidCallback? onGoToProfile;
   @override
   State<JobsScreen> createState() => _JobsScreenState();
 }
@@ -281,6 +288,7 @@ class _JobsScreenState extends State<JobsScreen> {
                                 builder: (_) => JobDetailScreen(
                                   api: widget.api,
                                   job: Map<String, dynamic>.from(job),
+                                  onGoToProfile: widget.onGoToProfile,
                                 ),
                               ),
                             ).then((_) {
@@ -482,9 +490,11 @@ class JobCard extends StatelessWidget {
 
 // ── Job Detail Screen ─────────────────────────────────────────────────────────
 class JobDetailScreen extends StatefulWidget {
-  const JobDetailScreen({super.key, required this.api, required this.job});
+  const JobDetailScreen(
+      {super.key, required this.api, required this.job, this.onGoToProfile});
   final TechnicianApi api;
   final Map<String, dynamic> job;
+  final VoidCallback? onGoToProfile;
   @override
   State<JobDetailScreen> createState() => _JobDetailState();
 }
@@ -542,6 +552,11 @@ class _JobDetailState extends State<JobDetailScreen> {
       showAppError(context, 'Customer OTP is required (minimum 4 digits).');
       return;
     }
+    // Pending (not yet approved) technicians can browse but not do live work.
+    if (widget.api.isPendingApproval) {
+      showActionLockedDialog(context, onGoToProfile: _goToProfile);
+      return;
+    }
     setState(() => loading = true);
     try {
       for (final entry in evidence.entries) {
@@ -564,10 +579,17 @@ class _JobDetailState extends State<JobDetailScreen> {
             SnackBar(content: Text('✓ Updated: ${humanize(status)}')));
       }
     } catch (e) {
-      if (mounted) showAppError(context, e);
+      if (mounted) showTechnicianError(context, e, onGoToProfile: _goToProfile);
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  /// "Go to Profile" in the Action Locked dialog: leave this screen and open
+  /// the Profile tab.
+  void _goToProfile() {
+    Navigator.of(context).maybePop();
+    widget.onGoToProfile?.call();
   }
 
   Future<void> _openMaps() async {

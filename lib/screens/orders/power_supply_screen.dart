@@ -288,7 +288,7 @@ class _PowerSupplyScreenState extends State<PowerSupplyScreen> {
       return true;
     } catch (error) {
       if (mounted && requestGeneration == _priceRequestGeneration) {
-        setState(() => _pricingError = error.toString());
+        setState(() => _pricingError = userMessage(error));
       }
       return false;
     } finally {

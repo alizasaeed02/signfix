@@ -134,7 +134,7 @@ class _QuotationDetailScreenState extends State<QuotationDetailScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
+          SnackBar(content: Text(userMessage(error))),
         );
       }
     } finally {
@@ -161,7 +161,7 @@ class _QuotationDetailScreenState extends State<QuotationDetailScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not download quotation: $error')),
+          SnackBar(content: Text('Could not download quotation: ${userMessage(error)}')),
         );
       }
     } finally {

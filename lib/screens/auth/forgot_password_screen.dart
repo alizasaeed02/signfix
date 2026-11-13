@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../../technician/services/api_client.dart' as tech;
 import '../../widgets/common.dart';
+import '../../core/app_utils.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({
@@ -142,7 +143,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _generalError = e.toString());
+      setState(() => _generalError = userMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -187,7 +188,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _generalError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _generalError = e.toString());
+      setState(() => _generalError = userMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -219,7 +220,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _generalError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _generalError = e.toString());
+      setState(() => _generalError = userMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -281,7 +282,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _generalError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _generalError = e.toString());
+      setState(() => _generalError = userMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -201,6 +201,15 @@ class TechnicianApi {
 
   static const approvalMessage = 'You can accept jobs only after admin approval.';
 
+  /// Backend lock codes for a technician whose account is still pending
+  /// (guide: TECHNICIAN_NOT_ACTIVE; older build: TECHNICIAN_NOT_APPROVED).
+  static bool isLockCode(String? code) =>
+      code == 'TECHNICIAN_NOT_ACTIVE' || code == 'TECHNICIAN_NOT_APPROVED';
+
+  /// True when [e] is the "Action Locked" error (HTTP 403 + lock code).
+  static bool isActionLocked(Object e) =>
+      e is ApiException && isLockCode(e.code);
+
   void _setStatusFrom(Map<dynamic, dynamic>? m) {
     if (m == null) return;
     final raw = (m['accountStatus'] ?? m['status'])?.toString();
@@ -226,7 +235,7 @@ class TechnicianApi {
   void _requireApproved() {
     if (!mockMode && isPendingApproval) {
       throw const ApiException(approvalMessage,
-          statusCode: 403, code: 'TECHNICIAN_NOT_APPROVED');
+          statusCode: 403, code: 'TECHNICIAN_NOT_ACTIVE');
     }
   }
 
@@ -318,6 +327,7 @@ class TechnicianApi {
     final data = await _request('POST', '/auth/firebase-phone', body: {
       'idToken': idToken,
       'role': 'technician',
+      'portal': 'technician',
       if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
     });
     final token = data['token']?.toString();
@@ -672,14 +682,49 @@ class TechnicianApi {
     return _request('POST', '/technician/service-requests', body: body);
   }
 
-  Future<List<dynamic>> siteRequests() async {
+  /// `{ data: [...], total, counts: {submitted, underReview, converted,
+  /// rejected, total} }` for the logged-in technician.
+  Future<Map<String, dynamic>> siteRequests() async {
     if (mockMode) {
       await Future.delayed(_mockDelay);
-      return [];
+      return {
+        'data': <dynamic>[],
+        'total': 0,
+        'counts': {
+          'submitted': 0,
+          'underReview': 0,
+          'converted': 0,
+          'rejected': 0,
+          'total': 0,
+        },
+      };
     }
-    final res = await _request('GET', '/technician/service-requests');
-    final data = res['data'];
-    return data is List ? data : [];
+    return _request('GET', '/technician/service-requests');
+  }
+
+  /// Uploads one photo to POST /uploads (multipart, field `file`) and returns
+  /// an absolute image URL for the service-request `photos` list.
+  Future<String> uploadSiteRequestPhoto(File file) async {
+    final r = await upload(file, 'service-request', 'site');
+    dynamic u = r['url'] ?? r['fileUrl'];
+    if (u == null) {
+      final list = r['urls'] ?? r['files'] ?? r['data'];
+      if (list is List && list.isNotEmpty) {
+        final first = list.first;
+        u = first is Map ? first['url'] : first;
+      } else if (list is Map) {
+        u = list['url'];
+      }
+    }
+    final s = u?.toString() ?? '';
+    if (s.isEmpty) {
+      throw const ApiException(
+          'Photo upload did not return a link. Please try again.');
+    }
+    if (s.startsWith('http')) return s;
+    final b = Uri.parse(baseUrl);
+    final origin = '${b.scheme}://${b.host}${b.hasPort ? ':${b.port}' : ''}';
+    return s.startsWith('/') ? '$origin$s' : '$origin/$s';
   }
 
   Future<Map<String, dynamic>> _request(String method, String path,
@@ -715,7 +760,7 @@ class TechnicianApi {
           'Request timed out. Please check your connection and try again.');
     } on SocketException {
       throw const ApiException(
-          'Cannot connect to SignFix. Check your network or API URL.');
+          'Cannot connect to SignFix. Please check your internet connection and try again.');
     }
   }
 
@@ -732,9 +777,8 @@ class TechnicianApi {
       final code = d is Map ? d['code']?.toString() : null;
       String errorMsg = m?.toString() ?? 'Request failed (${r.statusCode}).';
       // Server says this technician is not approved yet -> lock the app UI.
-      if (code == 'TECHNICIAN_NOT_APPROVED') {
+      if (isLockCode(code)) {
         accountStatus.value = 'pending_approval';
-        errorMsg = approvalMessage;
       }
       // Auto-clear token on 401
       if (r.statusCode == 401) {
@@ -763,7 +807,7 @@ class TechnicianApi {
     }
     if (d is! Map<String, dynamic>) {
       throw ApiException(
-        'Invalid response from server (HTTP ${r.statusCode}). Body: ${r.body.length > 200 ? r.body.substring(0, 200) : r.body}',
+        'The server sent an unexpected response. Please try again.',
         statusCode: r.statusCode,
       );
     }

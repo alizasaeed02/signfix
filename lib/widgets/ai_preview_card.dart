@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../core/app_theme.dart';
 import '../services/api_client.dart';
+import '../core/app_utils.dart';
 
 /// "Order & Create: AI Storefront Preview" card shared by the three home
 /// banner flows (Order wizard, Design Studio, Power Supply).
@@ -39,6 +40,7 @@ class AiPreviewCard extends StatefulWidget {
     required this.ready,
     required this.buildRequest,
     required this.promptSummary,
+    this.designSummary,
     this.onChanged,
     this.autoGenerate = true,
     this.autoDelay = const Duration(seconds: 2),
@@ -64,6 +66,10 @@ class AiPreviewCard extends StatefulWidget {
   /// Text saved on the order as `aiPrompt`.
   final String Function() promptSummary;
 
+  /// Short "what the customer designed" line shown above "AI used", so the
+  /// two can be compared at a glance.
+  final String Function()? designSummary;
+
   final void Function(String? imageUrl, String? prompt, bool confirmed)?
       onChanged;
   final bool autoGenerate;
@@ -78,6 +84,7 @@ class AiPreviewCard extends StatefulWidget {
 class _AiPreviewCardState extends State<AiPreviewCard> {
   String? _url;
   String? _prompt;
+  String? _specs; // what the server says it generated (from `specifications`)
   bool _loading = false;
   bool _confirmed = false;
   bool _stale = false;
@@ -172,9 +179,25 @@ class _AiPreviewCardState extends State<AiPreviewCard> {
             'AI image generation is not available right now. Please try again shortly.');
       }
       if (!mounted || run != _generation) return;
+      final s = res['specifications'];
+      String? specs;
+      if (s is Map) {
+        String? t(String k) {
+          final v = s[k]?.toString().trim();
+          return (v == null || v.isEmpty) ? null : v;
+        }
+
+        final size = (t('width') != null && t('height') != null)
+            ? '${t('width')} × ${t('height')} ${t('unit') ?? 'ft'}'
+            : null;
+        specs = [t('color'), t('material'), size]
+            .whereType<String>()
+            .join(' · ');
+      }
       setState(() {
         _url = url;
         _prompt = widget.promptSummary();
+        _specs = (specs == null || specs.isEmpty) ? null : specs;
         _stale = false;
       });
       AiPreviewCard._cache[widget.cacheScope] =
@@ -182,7 +205,7 @@ class _AiPreviewCardState extends State<AiPreviewCard> {
       _notify();
     } catch (e) {
       if (!mounted || run != _generation) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = userMessage(e));
     } finally {
       if (mounted && run == _generation) setState(() => _loading = false);
     }
@@ -315,6 +338,22 @@ class _AiPreviewCardState extends State<AiPreviewCard> {
             const SizedBox(height: 6),
             const Text('Tap the image to view it full screen',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
+            if (widget.designSummary != null) ...[
+              const SizedBox(height: 4),
+              Text('Your design: ${widget.designSummary!()}',
+                  style: const TextStyle(
+                      color: AppColors.navy,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700)),
+            ],
+            if (_specs != null) ...[
+              const SizedBox(height: 4),
+              Text('AI used: $_specs',
+                  style: const TextStyle(
+                      color: AppColors.textLight,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
+            ],
             const SizedBox(height: 10),
             if (_stale)
               const Text(

@@ -4,6 +4,7 @@ import '../../services/api_client.dart';
 import 'registration_data.dart';
 import 'registration_widgets.dart';
 import 'otp_verification_screen.dart';
+import '../../../core/app_utils.dart';
 
 class RegStep3Security extends StatefulWidget {
   const RegStep3Security({super.key, required this.api, required this.data});
@@ -34,11 +35,12 @@ class _RegStep3SecurityState extends State<RegStep3Security> {
       setState(() => _error = 'Password is required.');
       return false;
     }
-    if (_pass.text.length < 10) {
-      setState(() => _error = 'Password must be at least 10 characters.');
+    // Same rule as customer sign-up and password reset: 6 to 8 characters.
+    if (_pass.text.length < 6 || _pass.text.length > 8) {
+      setState(() => _error = 'Password must be 6 to 8 characters long.');
       return false;
     }
-    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{10,72}$')
+    if (!RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{6,8}$')
         .hasMatch(_pass.text)) {
       setState(() => _error =
           'Password must include uppercase, lowercase, a number, and a special character.');
@@ -79,7 +81,7 @@ class _RegStep3SecurityState extends State<RegStep3Security> {
                 OtpVerificationScreen(api: widget.api, data: widget.data),
           ));
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = userMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -131,7 +133,7 @@ class _RegStep3SecurityState extends State<RegStep3Security> {
                   SizedBox(width: 10),
                   Expanded(
                       child: Text(
-                          'Minimum 10 characters with uppercase, lowercase, number, and special character.',
+                          '6 to 8 characters with uppercase, lowercase, number, and special character.',
                           style: TextStyle(
                               color: AppColors.midGray, fontSize: 12))),
                 ]),
@@ -269,9 +271,10 @@ class _RegStep3SecurityState extends State<RegStep3Security> {
                       )
                     : FilledButton.icon(
                         onPressed: _sendOtpAndNext,
-                        icon: const Icon(Icons.sms_outlined),
+                        icon: const Icon(Icons.mail_outline_rounded),
+                        // The code is emailed (not texted), so show the email.
                         label: Text(
-                            'Send OTP to ${widget.data.mobile.isNotEmpty ? widget.data.mobile : "Mobile"}'),
+                            'Send OTP to ${widget.data.email.isNotEmpty ? widget.data.email : "your email"}'),
                       ),
               ),
               const SizedBox(height: 20),
@@ -286,8 +289,8 @@ class _PasswordStrength extends StatelessWidget {
   final String password;
   int get _score {
     int s = 0;
-    if (password.length >= 8) s++;
-    if (password.length >= 12) s++;
+    if (password.length >= 6) s++;
+    if (password.length == 8) s++; // 8 is the maximum allowed
     if (RegExp(r'[A-Z]').hasMatch(password)) s++;
     if (RegExp(r'\d').hasMatch(password)) s++;
     if (RegExp(r'[!@#\$%^&*]').hasMatch(password)) s++;

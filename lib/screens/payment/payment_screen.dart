@@ -285,7 +285,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       if (paymentIntentId == null ||
           paymentIntentId.isEmpty ||
           checkoutValue is! Map) {
-        throw Exception('Server ne valid payment intent nahi bheja.');
+        throw Exception('The payment could not be started. Please try again.');
       }
 
       final checkout = Map<String, dynamic>.from(checkoutValue);
@@ -300,7 +300,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       } else if (rawAmount is String && num.tryParse(rawAmount) != null) {
         amountInPaise = num.parse(rawAmount).round();
       } else {
-        throw Exception('Backend ne invalid amount format bheja hai.');
+        throw Exception('The payment could not be started. Please try again.');
       }
 
       final currency = checkout['currency']?.toString() ?? 'INR';
@@ -311,7 +311,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           : 'rzp_live_TZRwgnPCEkDeu4';
 
       if (amountInPaise <= 0) {
-        throw Exception('Amount 0 ya negative hai: $amountInPaise');
+        throw Exception('This order has no payable amount.');
       }
 
       _paymentIntentId = paymentIntentId;

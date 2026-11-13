@@ -1,9 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../../widgets/common.dart';
+import '../../../core/app_utils.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.api, required this.onLogout});
@@ -65,95 +64,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _skillsCtrl.text = (p['skills'] as List? ?? []).join(', ');
     _locationSharing = p['locationSharing'] == true;
     setState(() => _editing = true);
-  }
-
-  Future<void> _pickPhoto(Map<String, dynamic> p) async {
-    final picker = ImagePicker();
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: AppColors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppColors.cardBorder,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 16),
-          const Text('Update Profile Photo',
-              style: TextStyle(
-                  color: AppColors.navy,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16)),
-          const SizedBox(height: 16),
-          ListTile(
-            leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                    color: AppColors.gold.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.camera_alt_outlined,
-                    color: AppColors.gold)),
-            title: const Text('Take Photo',
-                style: TextStyle(
-                    color: AppColors.navy, fontWeight: FontWeight.w600)),
-            onTap: () => Navigator.pop(context, ImageSource.camera),
-          ),
-          ListTile(
-            leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                    color: AppColors.navy.withValues(alpha: .08),
-                    borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.photo_library_outlined,
-                    color: AppColors.gold)),
-            title: const Text('Choose from Gallery',
-                style: TextStyle(
-                    color: AppColors.navy, fontWeight: FontWeight.w600)),
-            onTap: () => Navigator.pop(context, ImageSource.gallery),
-          ),
-          if (p['profilePhotoPath'] != null &&
-              (p['profilePhotoPath'] as String).isNotEmpty)
-            ListTile(
-              leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                      color: AppColors.danger.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.delete_outline,
-                      color: AppColors.danger)),
-              title: const Text('Remove Photo',
-                  style: TextStyle(
-                      color: AppColors.danger, fontWeight: FontWeight.w600)),
-              onTap: () => Navigator.pop(context, null),
-            ),
-        ]),
-      ),
-    );
-    if (source == null && p['profilePhotoPath'] != null) {
-      await widget.api.updateProfile({'profilePhotoPath': null});
-      if (mounted) {
-        final future = widget.api.getProfile();
-        setState(() {
-          _future = future;
-        });
-      }
-      return;
-    }
-    if (source == null) return;
-    final img = await picker.pickImage(source: source, imageQuality: 80);
-    if (img == null || !mounted) return;
-    await widget.api.updateProfile({'profilePhotoPath': img.path});
-    if (mounted) {
-      final future = widget.api.getProfile();
-      setState(() {
-        _future = future;
-      });
-    }
   }
 
   Future<void> _save() async {
@@ -308,67 +218,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     // ── Avatar & Name ──────────────────────────────────────────────
                     Center(
                         child: Column(children: [
-                      GestureDetector(
-                        onTap: () => _pickPhoto(p),
-                        child:
-                            Stack(alignment: Alignment.bottomRight, children: [
-                          Container(
-                            width: 90,
-                            height: 90,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.gold.withValues(alpha: .12),
-                              border: Border.all(
-                                  color: AppColors.gold.withValues(alpha: .5),
-                                  width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                    color: AppColors.gold.withValues(alpha: .2),
-                                    blurRadius: 16)
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: p['profilePhotoPath'] != null &&
-                                      (p['profilePhotoPath'] as String)
-                                          .isNotEmpty
-                                  ? Image.file(File(p['profilePhotoPath']),
-                                      fit: BoxFit.cover, width: 90, height: 90)
-                                  : Center(
-                                      child: Text(
-                                      (p['name'] as String? ?? 'T')
-                                          .substring(0, 1)
-                                          .toUpperCase(),
-                                      style: const TextStyle(
-                                          fontSize: 36,
-                                          fontWeight: FontWeight.w900,
-                                          color: AppColors.gold),
-                                    )),
-                            ),
-                          ),
-                          // Camera icon
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(
-                                color: AppColors.gold, shape: BoxShape.circle),
-                            child: const Icon(Icons.camera_alt_rounded,
-                                size: 14, color: AppColors.navyDeep),
-                          ),
-                          // Online dot
-                          Positioned(
-                            top: 0,
-                            right: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(3),
-                              decoration: const BoxDecoration(
-                                  color: AppColors.success,
-                                  shape: BoxShape.circle),
-                              child: const Icon(Icons.check_rounded,
-                                  size: 10, color: AppColors.white),
-                            ),
-                          ),
-                        ]),
-                      ),
-                      const SizedBox(height: 12),
                       Text(
                           p['name']?.toString().isNotEmpty == true
                               ? p['name'].toString()
@@ -407,9 +256,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ValueListenableBuilder<String>(
                       valueListenable: widget.api.accountStatus,
                       builder: (context, status, _) {
-                        final missing =
-                            (p['workLocation'] ?? '').toString().trim().isEmpty ||
-                                skills.isEmpty;
+                        final areas = p['serviceAreas'];
+                        final missing = (areas is List
+                                ? areas.isEmpty
+                                : (p['workLocation'] ?? '')
+                                    .toString()
+                                    .trim()
+                                    .isEmpty) ||
+                            skills.isEmpty;
                         if (status != 'pending_approval' && !missing) {
                           return const SizedBox.shrink();
                         }
@@ -797,7 +651,12 @@ class _CompleteProfileCardState extends State<_CompleteProfileCard> {
   void initState() {
     super.initState();
     final p = widget.profile;
-    _city = TextEditingController(text: p['workLocation']?.toString() ?? '');
+    // Work location / city = the technician's service areas (guide: serviceAreas[]).
+    final areas = p['serviceAreas'];
+    _city = TextEditingController(
+        text: areas is List
+            ? areas.join(', ')
+            : (p['workLocation']?.toString() ?? ''));
     _skills = TextEditingController(
         text: (p['skills'] as List? ?? const []).join(', '));
     _mobile = TextEditingController(
@@ -839,7 +698,11 @@ class _CompleteProfileCardState extends State<_CompleteProfileCard> {
     });
     try {
       await widget.api.updateProfile({
-        'workLocation': city,
+        'serviceAreas': city
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList(),
         'skills': skills,
         'mobile': mobile,
       });
@@ -852,7 +715,7 @@ class _CompleteProfileCardState extends State<_CompleteProfileCard> {
       ));
       await widget.onSaved();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = userMessage(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -896,6 +759,7 @@ class _CompleteProfileCardState extends State<_CompleteProfileCard> {
             style: const TextStyle(color: AppColors.charcoal),
             decoration: const InputDecoration(
               labelText: 'Work location / city *',
+              hintText: 'e.g. Noida Sector 62, East Delhi',
               prefixIcon: Icon(Icons.location_city_outlined),
             ),
           ),

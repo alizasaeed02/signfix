@@ -169,8 +169,11 @@ class PendingApprovalScreen extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () {
-                    // Pop all registration screens back to login
-                    Navigator.of(context).popUntil((route) => route.isFirst);
+                    // This screen is pushed with every other route removed, so
+                    // popUntil(isFirst) had nothing to go back to. Rebuild the
+                    // app root instead: it shows the technician login.
+                    Navigator.of(context)
+                        .pushNamedAndRemoveUntil('/', (_) => false);
                   },
                   icon: const Icon(Icons.login_rounded),
                   label: Text(isRejected ? 'Back to Login' : 'Back to Login'),

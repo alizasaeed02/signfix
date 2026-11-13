@@ -1008,9 +1008,22 @@ class ApiClient {
   Future<Map<String, dynamic>> generateDesignPreview(
       Map<String, dynamic> data) async {
     try {
-      final res = await _request('POST', '/customer/designs/preview',
-          body: _toPreviewPayload(data),
-          timeout: const Duration(seconds: 120));
+      final strict = _toPreviewPayload(data);
+      Map<String, dynamic> res;
+      try {
+        // Guide fields + the older field names (dimensions, background, font,
+        // lighting colour, reference render...) so a server whose prompt still
+        // reads those keys uses the customer's real selections, not defaults.
+        res = await _request('POST', '/customer/designs/preview',
+            body: _richPreviewPayload(data, strict),
+            timeout: const Duration(seconds: 120));
+      } on ApiException catch (e) {
+        // A strict schema may reject the extra keys: retry with only the
+        // fields from the backend guide.
+        if (e.statusCode != 400 && e.statusCode != 422) rethrow;
+        res = await _request('POST', '/customer/designs/preview',
+            body: strict, timeout: const Duration(seconds: 120));
+      }
       // Guide response: { success, imageUrl, specifications }
       final nested = res['data'];
       if ((res['imageUrl'] == null) && nested is Map) {
@@ -1093,6 +1106,35 @@ class ApiClient {
     }
     if (v.contains('acp') || v.contains('gold')) return 'Brushed Gold ACP';
     return 'Glossy Black Acrylic';
+  }
+
+  Map<String, dynamic> _richPreviewPayload(
+      Map<String, dynamic> d, Map<String, dynamic> strict) {
+    String? s(String k) {
+      final v = d[k]?.toString().trim();
+      return (v == null || v.isEmpty) ? null : v;
+    }
+
+    final unit = strict['unit'];
+    String fmt(num n) => n % 1 == 0 ? n.toInt().toString() : n.toStringAsFixed(1);
+    return {
+      // legacy names the preview prompt used to read
+      if (s('category') != null) 'category': s('category'),
+      if (s('signType') != null) 'signType': s('signType'),
+      'businessText': strict['businessName'],
+      if (s('font') != null) 'font': s('font'),
+      if (s('style') != null) 'style': s('style'),
+      'background': s('background') ?? strict['material'],
+      'dimensions':
+          '${fmt(strict['width'] as num)} x ${fmt(strict['height'] as num)} $unit',
+      if (s('notes') != null) 'notes': s('notes'),
+      if (s('referenceImage') != null) 'referenceImage': s('referenceImage'),
+      // the colour is the lettering AND its LED glow
+      'lightingColor': strict['color'],
+      'glowColor': strict['color'],
+      // fields from the backend guide always win
+      ...strict,
+    };
   }
 
   /// Request body exactly as the backend guide:
@@ -1321,7 +1363,7 @@ class ApiClient {
           'Request timed out. Please check your connection and try again.');
     } on SocketException {
       throw const ApiException(
-          'Cannot connect to SignFix. Check your network or API URL.');
+          'Cannot connect to SignFix. Please check your internet connection and try again.');
     } on HttpException {
       throw const ApiException('The SignFix server could not be reached.');
     } on http.ClientException {

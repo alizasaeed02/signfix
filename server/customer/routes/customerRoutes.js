@@ -228,18 +228,32 @@ const design = z.object({
   storefrontUrl: z.string().optional(),
   notes: z.string().max(2000).optional(),
 });
-const designPreview = z.object({
-  category: z.string().optional(),
-  signType: z.string().min(1),
-  businessText: z.string().min(1),
-  font: z.string().optional(),
-  color: z.string().optional(),
-  background: z.string().optional(),
-  style: z.string().optional(),
-  dimensions: z.string().optional(),
-  notes: z.string().max(2000).optional(),
-  referenceImage: z.string().max(1_500_000).optional(),
-});
+// Guide fields: { businessName, color, material, width, height, unit }.
+// Older fields (businessText, signType, background, dimensions...) are still accepted.
+const designPreview = z
+  .object({
+    category: z.string().optional(),
+    signType: z.string().optional(),
+    businessName: z.string().trim().min(1).optional(),
+    businessText: z.string().trim().min(1).optional(),
+    font: z.string().optional(),
+    color: z.string().optional(),
+    material: z.string().optional(),
+    background: z.string().optional(),
+    style: z.string().optional(),
+    width: z.coerce.number().positive().max(500).optional(),
+    height: z.coerce.number().positive().max(500).optional(),
+    unit: z.string().max(10).optional(),
+    dimensions: z.string().optional(),
+    notes: z.string().max(2000).optional(),
+    lightingColor: z.string().optional(),
+    glowColor: z.string().optional(),
+    referenceImage: z.string().max(1_500_000).optional(),
+  })
+  .refine((v) => v.businessName || v.businessText, {
+    message: "businessName is required",
+    path: ["businessName"],
+  });
 router.post("/designs/preview", validate(designPreview), controller.generateDesignPreview);
 router.post("/designs", validate(design), controller.createDesign);
 router.get("/designs", controller.designs);

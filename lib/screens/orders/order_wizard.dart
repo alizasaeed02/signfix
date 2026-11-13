@@ -200,7 +200,7 @@ class _OrderWizardState extends State<OrderWizard> {
       });
       _scheduleCalculation();
     } catch (error) {
-      if (mounted) setState(() => _optionsError = error.toString());
+      if (mounted) setState(() => _optionsError = userMessage(error));
     }
   }
 
@@ -271,7 +271,7 @@ class _OrderWizardState extends State<OrderWizard> {
       final wallet = await widget.api.wallet();
       if (mounted) setState(() => _walletData = wallet);
     } catch (error) {
-      if (mounted) setState(() => _walletError = error.toString());
+      if (mounted) setState(() => _walletError = userMessage(error));
     } finally {
       if (mounted) setState(() => _walletLoading = false);
     }
@@ -377,7 +377,7 @@ class _OrderWizardState extends State<OrderWizard> {
       return _calculationGate.isLatest(requestId);
     } catch (e) {
       if (mounted && _calculationGate.isLatest(requestId)) {
-        setState(() => _quoteError = e.toString());
+        setState(() => _quoteError = userMessage(e));
         if (advance) _err(e);
       }
       return false;
@@ -484,7 +484,7 @@ class _OrderWizardState extends State<OrderWizard> {
       debugPrint('OrderWizard order submission failed: $e');
       if (mounted) {
         setState(() {
-          _payError = e.toString();
+          _payError = userMessage(e);
           _payPending = false;
         });
       }
@@ -1932,6 +1932,8 @@ class _OrderWizardState extends State<OrderWizard> {
       AiPreviewCard(
         api: widget.api,
         cacheScope: 'wizard',
+        designSummary: () =>
+            '$type · $material · $lighting · ${length.text} × ${width.text} $unit',
         ready: !_orderSubmitted,
         selectionKey: [
           type,
@@ -1956,13 +1958,15 @@ class _OrderWizardState extends State<OrderWizard> {
           if (_textDesign != null)
             'color':
                 '#${_textDesign!.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+          'notes':
+              'Recreate this exact sign: $type in $material with $lighting lighting. '
+              '${_textDesign != null ? 'The letters spell "${_textDesign!.text}". The LED glow must match the letter color - never yellow, gold, orange or green unless that is the letter color. ' : ''}'
+              'Proportions ${length.text} x ${width.text} $unit. No other text, colors or objects.',
           'material': material,
           'width': double.tryParse(length.text),
           'height': double.tryParse(width.text),
           'unit': unit,
           'background': '$material backing, ${lighting.toLowerCase()}',
-          if (_sideWalling != null && _sideWalling!.isNotEmpty)
-            'style': 'Side walling: $_sideWalling',
           'dimensions': '${length.text} x ${width.text} $unit',
         },
         promptSummary: () =>

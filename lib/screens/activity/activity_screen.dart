@@ -580,7 +580,7 @@ class _OrderCard extends StatelessWidget {
       );
     } catch (e) {
       messenger.showSnackBar(SnackBar(
-          content: Text('Could not start payment: $e'),
+          content: Text('Could not start payment: ${userMessage(e)}'),
           backgroundColor: AppColors.danger));
     }
     if (paid) {

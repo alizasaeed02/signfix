@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../../widgets/common.dart';
+import '../../core/app_utils.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({
@@ -149,7 +150,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } catch (e) {
       if (mounted) {
-        String msg = e.toString();
+        String msg = userMessage(e);
         if (msg.startsWith('Exception: ')) msg = msg.substring(11);
         if (msg.startsWith('ApiException: ')) msg = msg.substring(14);
         setState(() => _error = msg);

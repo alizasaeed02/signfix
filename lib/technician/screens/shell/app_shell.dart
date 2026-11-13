@@ -8,6 +8,7 @@ import '../jobs/jobs_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import '../requests/service_request_screen.dart';
+import '../../../core/app_utils.dart' show notificationIsRead;
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.api, required this.onLogout});
@@ -66,7 +67,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     });
     _pages = [
       DashboardScreen(api: widget.api, onGoToJobs: () => _goTo(1)),
-      JobsScreen(api: widget.api, onLogout: widget.onLogout),
+      JobsScreen(
+          api: widget.api,
+          onLogout: widget.onLogout,
+          onGoToProfile: () => _goTo(4)),
       TechnicianServiceRequestScreen(api: widget.api),
       NotificationsScreen(
         key: _notifKey,
@@ -84,7 +88,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     try {
       final list = await widget.api.notifications();
       if (mounted) {
-        setState(() => _unread = list.where((n) => n['read'] != true).length);
+        setState(() => _unread = list.where((n) => !notificationIsRead(n)).length);
       }
     } catch (_) {}
   }
@@ -184,9 +188,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             child: Column(children: [
               ValueListenableBuilder<String>(
                 valueListenable: widget.api.accountStatus,
-                builder: (context, status, _) => status == 'pending_approval'
-                    ? _PendingApprovalBanner(onCompleteProfile: () => _goTo(4))
-                    : const SizedBox.shrink(),
+                // Guide: non-blocking banner on the Home and Jobs tabs only.
+                builder: (context, status, _) =>
+                    status == 'pending_approval' && (_index == 0 || _index == 1)
+                        ? _PendingApprovalBanner(
+                            onCompleteProfile: () => _goTo(4))
+                        : const SizedBox.shrink(),
               ),
               Expanded(child: IndexedStack(index: _index, children: _pages)),
             ]),
@@ -254,32 +261,34 @@ class _PendingApprovalBanner extends StatelessWidget {
   const _PendingApprovalBanner({required this.onCompleteProfile});
   final VoidCallback onCompleteProfile;
 
+  // Banner copy as written in the technician auth guide.
   @override
   Widget build(BuildContext context) => Material(
         color: AppColors.warning.withValues(alpha: .16),
-        child: InkWell(
-          onTap: onCompleteProfile,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(children: [
-              Icon(Icons.hourglass_top_rounded,
-                  size: 18, color: AppColors.goldDark),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Your account is pending approval. Complete your profile to start accepting live jobs.',
-                  style: TextStyle(
-                      color: AppColors.navy,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3),
-                ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+          child: Row(children: [
+            const Expanded(
+              child: Text(
+                '⚠️ Account under review. Complete your profile details to unlock job assignments.',
+                style: TextStyle(
+                    color: AppColors.navy,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded,
-                  size: 20, color: AppColors.goldDark),
-            ]),
-          ),
+            ),
+            const SizedBox(width: 6),
+            TextButton(
+              onPressed: onCompleteProfile,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: AppColors.goldDark,
+              ),
+              child: const Text('Edit Profile',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+            ),
+          ]),
         ),
       );
 }

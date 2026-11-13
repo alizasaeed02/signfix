@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/app_theme.dart';
+import '../../core/app_utils.dart' show userMessage;
+import '../services/api_client.dart' show TechnicianApi;
 
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 48});
@@ -87,5 +89,45 @@ class GoogleSignInButton extends StatelessWidget {
   }
 }
 
-void showAppError(BuildContext c, Object e) =>
-    ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(e.toString())));
+void showAppError(BuildContext c, Object e) => ScaffoldMessenger.of(c)
+    .showSnackBar(SnackBar(content: Text(userMessage(e))));
+
+/// Guide "Action Locked" dialog: shown when the server answers 403 with
+/// `TECHNICIAN_NOT_ACTIVE` (account still pending admin approval). It is
+/// action-specific: it never logs the user out or blocks browsing.
+Future<void> showActionLockedDialog(BuildContext context,
+    {VoidCallback? onGoToProfile}) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppColors.white,
+      title: const Text('🔒 Action Locked',
+          style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800)),
+      content: const Text(
+        'Your profile is currently under review by Admin. Please ensure your profile details are completed.',
+        style: TextStyle(color: AppColors.textLight, height: 1.35),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            onGoToProfile?.call();
+          },
+          child: const Text('Go to Profile'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Shows the Action Locked dialog for a lock error, otherwise a snackbar.
+void showTechnicianError(BuildContext c, Object e,
+    {VoidCallback? onGoToProfile}) {
+  if (TechnicianApi.isActionLocked(e)) {
+    showActionLockedDialog(c, onGoToProfile: onGoToProfile);
+  } else {
+    showAppError(c, e);
+  }
+}

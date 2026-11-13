@@ -164,6 +164,24 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
   ];
   final Map<String, dynamic> _selectedWall = _walls[0];
 
+  // Text exactly as the preview shows it: all-caps fonts (Bebas Neue) display
+  // capitals, so the AI must be given capitals too.
+  bool get _fontIsAllCaps =>
+      _selectedFont.category.toLowerCase().contains('all-caps');
+  String get _signText {
+    final t = _textCtrl.text.trim();
+    return _fontIsAllCaps ? t.toUpperCase() : t;
+  }
+
+  String get _fontLook {
+    final n = _selectedFont.name.toLowerCase();
+    if (n.contains('bebas')) return 'tall condensed all-caps headline sans-serif';
+    if (n.contains('playfair')) return 'elegant high-contrast luxury serif';
+    if (n.contains('outfit')) return 'clean thin architectural geometric sans-serif';
+    if (n.contains('oswald')) return 'narrow bold commercial gothic sans-serif';
+    return 'bold geometric modern sans-serif';
+  }
+
   // Dimensions (slider for quick picks, typed fields for exact sizes)
   double _widthFt = 3.0;
   double _heightFt = 1.5;
@@ -301,7 +319,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
       return true;
     } catch (error) {
       if (mounted && requestGeneration == _priceRequestGeneration) {
-        setState(() => _pricingError = error.toString());
+        setState(() => _pricingError = userMessage(error));
       }
       return false;
     } finally {
@@ -528,6 +546,21 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
     final previewTextStyle =
         _selectedFont.styleBuilder(24, _textColor, FontWeight.w800);
 
+    // The backing plate follows the chosen width : height, so changing either
+    // changes its shape (and the reference image sent to the AI).
+    final stageW = MediaQuery.of(context).size.width - 32; // list padding
+    const stageH = 230.0;
+    final maxPlateW = stageW - 36;
+    const maxPlateH = stageH - 70; // room for the corner badges
+    final ratio = _widthFt / _heightFt;
+    var plateW = maxPlateW;
+    var plateH = plateW / ratio;
+    if (plateH > maxPlateH) {
+      plateH = maxPlateH;
+      plateW = plateH * ratio;
+    }
+    if (plateH < 34) plateH = 34; // very wide signs: keep the text readable
+
     return Scaffold(
       backgroundColor: AppColors.softGray,
       appBar: AppBar(
@@ -600,10 +633,11 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
               alignment: Alignment.center,
               children: [
                 // Backing plate representation
-                Container(
-                  width: 280,
-                  height: 120,
-                  padding: const EdgeInsets.all(12),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: plateW,
+                  height: plateH,
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: backingColor,
                     borderRadius: BorderRadius.circular(10),
@@ -620,7 +654,10 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                     ],
                   ),
                   child: Center(
-                    child: Stack(
+                    // Scale the lettering down to fit the (now variable) plate.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Stack(
                       alignment: Alignment.center,
                       children: [
                         if (outlineColor != null)
@@ -655,6 +692,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
+                    ),
                     ),
                   ),
                 ),
@@ -999,6 +1037,8 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
           AiPreviewCard(
             api: widget.api,
             cacheScope: 'signage',
+            designSummary: () =>
+                '$_textColorName · ${_selectedFont.name} · ${_selectedBacking['name']} · ${_widthFt.toStringAsFixed(1)} × ${_heightFt.toStringAsFixed(1)} ft',
             ready: _textCtrl.text.trim().isNotEmpty,
             notReadyMessage:
                 'Enter your signboard text above to see the AI preview.',
@@ -1012,7 +1052,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
               _heightFt.toStringAsFixed(1),
             ].join('|'),
             buildRequest: () async {
-              final text = _textCtrl.text.trim();
+              final text = _signText; // same case the preview shows
               final reference = await _capturePreview();
               return {
                 if (reference != null) 'referenceImage': reference,
@@ -1021,6 +1061,16 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
                 'businessText': text,
                 'font': '${_selectedFont.name} (${_selectedFont.category})',
                 'color': _textColorName,
+                // Written instruction: the LED glow must match the letters.
+                'notes':
+                    'Recreate this exact signboard. The letters spell exactly "$text" '
+                    '${_fontIsAllCaps ? '(ALL CAPITAL letters) ' : ''}in '
+                    '${_selectedFont.name} lettering ($_fontLook), colored $_textColorName. '
+                    'The LED glow / backlight around the letters must be the SAME '
+                    '$_textColorName only - no warm, yellow, gold, orange or green backlight. '
+                    'Backing plate: ${_selectedBacking['name']}, a wide rectangle '
+                    'with proportions ${_widthFt.toStringAsFixed(1)} x ${_heightFt.toStringAsFixed(1)} ft. '
+                    'Wall: ${_selectedWall['name']}. No other text, colors or objects.',
                 'material': '${_selectedBacking['name']}',
                 'width': _widthFt,
                 'height': _heightFt,
@@ -1032,7 +1082,7 @@ class _SignageDesignerScreenState extends State<SignageDesignerScreen> {
               };
             },
             promptSummary: () =>
-                'Create a 3D LED signboard design with the name "${_textCtrl.text.trim()}". '
+                'Create a 3D LED signboard design with the name "$_signText". '
                 'Letters and LED glow: $_textColorName; backing: ${_selectedBacking['name']}; '
                 'font: ${_selectedFont.name}; size: ${_widthFt.toStringAsFixed(1)} x ${_heightFt.toStringAsFixed(1)} ft.',
             onChanged: (url, prompt, confirmed) {

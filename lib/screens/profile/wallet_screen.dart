@@ -73,7 +73,7 @@ class _WalletScreenState extends State<WalletScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        snapshot.error.toString(),
+                        userMessage(snapshot.error),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                             color: AppColors.textMuted, fontSize: 12),

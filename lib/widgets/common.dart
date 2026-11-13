@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../core/app_theme.dart';
+import '../core/app_utils.dart' show userMessage;
 
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 64});
@@ -107,8 +108,8 @@ class StatusTile extends StatelessWidget {
           subtitle: Text(subtitle)));
 }
 
-void showAppError(BuildContext c, Object e) =>
-    ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(e.toString())));
+void showAppError(BuildContext c, Object e) => ScaffoldMessenger.of(c)
+    .showSnackBar(SnackBar(content: Text(userMessage(e))));
 
 
 class GoogleSignInButton extends StatelessWidget {
