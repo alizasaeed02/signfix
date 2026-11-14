@@ -112,7 +112,12 @@ class _SignFixAppState extends State<SignFixApp> {
                   Text(notification.title ?? 'SignFix',
                       style: const TextStyle(
                           fontWeight: FontWeight.w800, color: AppColors.white)),
-                  if (notification.body != null)
+                  // Payment failures: the title alone is enough (the body
+                  // carries the internal order id and amount).
+                  if (notification.body != null &&
+                      !(notification.title ?? '')
+                          .toLowerCase()
+                          .contains('payment failed'))
                     Text(notification.body!,
                         style: const TextStyle(color: AppColors.white70)),
                 ],

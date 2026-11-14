@@ -97,7 +97,12 @@ Future<bool> payForOrder(
   String? retryPaymentId,
   String paymentType = 'full',
 }) async {
-  final profile = await api.getProfile();
+  Map<String, dynamic> profile = const {};
+  try {
+    profile = Map<String, dynamic>.from(await api.getProfile());
+  } catch (_) {
+    // Prefill is optional; never block payment because the profile failed.
+  }
   if (!context.mounted) return false;
   final result = await Navigator.push<bool>(
     context,
@@ -267,9 +272,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
       final idempotencyKey =
           '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32).toRadixString(16)}';
       final retryId = _activeRetryId ?? widget.retryPaymentId;
+      Future<Map<String, dynamic>> freshIntent() => widget.payOrderDirectly
+          ? _createOrderIntent(payType, idempotencyKey)
+          : widget.api.createPaymentIntent({
+              'quotationNo': widget.quotationNo,
+              'type': payType,
+              'amount': widget.amount,
+              'idempotencyKey': idempotencyKey,
+            });
       final intent = retryId != null
-          // Guide "Retry payment": POST /payments/:id/retry -> new session.
-          ? await widget.api.retryPayment(retryId)
+          // Retry: ask the backend for a fresh Razorpay order first
+          // (POST /payments/order-intents). Fall back to /payments/:id/retry.
+          ? await (widget.payOrderDirectly
+              ? freshIntent().catchError((Object _) =>
+                  widget.api.retryPayment(retryId))
+              : widget.api.retryPayment(retryId)
+                  .catchError((Object _) => freshIntent()))
           : widget.payOrderDirectly
           ? await _createOrderIntent(payType, idempotencyKey)
           : await widget.api.createPaymentIntent({

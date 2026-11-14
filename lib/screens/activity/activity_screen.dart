@@ -561,6 +561,8 @@ class _OrderCard extends StatelessWidget {
   /// (POST /customer/payments/:id/retry per the payment API guide).
   Future<void> _retryPayment(BuildContext context) async {
     final orderNo = o['id']?.toString() ?? '';
+    // A fresh order-intent is always created; the failed payment id is only
+    // a fallback, so a missing id must not block the retry.
     final paymentId = orderPaymentId(o);
     final messenger = ScaffoldMessenger.of(context);
     var paid = false;
@@ -569,8 +571,8 @@ class _OrderCard extends StatelessWidget {
         context,
         api,
         orderNo: orderNo,
-        amount: (o['estimatedPrice'] as num?)?.toDouble() ??
-            double.tryParse('${o['estimatedPrice']}') ??
+        amount: double.tryParse(
+                '${o['estimatedPrice']}'.replaceAll(RegExp(r'[^0-9.]'), '')) ??
             0,
         description: 'Order $orderNo',
         retryPaymentId: paymentId,
