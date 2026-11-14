@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/app_theme.dart';
+import '../../services/location_tracker.dart';
 import '../../services/api_client.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../jobs/jobs_screen.dart';
@@ -46,8 +47,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  late final LocationTracker _tracker = LocationTracker(widget.api);
+
   @override
   void dispose() {
+    _tracker.stop();
     _statusTimer?.cancel();
     widget.api.accountStatus.removeListener(_onStatusChanged);
     WidgetsBinding.instance.removeObserver(this);
@@ -61,6 +65,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _lastStatus = widget.api.accountStatus.value;
     widget.api.accountStatus.addListener(_onStatusChanged);
     widget.api.refreshAccountStatus();
+    _tracker.start(); // live GPS pings while a job is active
     _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       // Only needed while waiting for approval.
       if (widget.api.isPendingApproval) widget.api.refreshAccountStatus();
