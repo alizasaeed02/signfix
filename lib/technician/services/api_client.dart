@@ -625,11 +625,17 @@ class TechnicianApi {
   }
 
   Future<Map<String, dynamic>> updateLocation(
-      String jobId, double lat, double lng) {
+      String jobId, double lat, double lng,
+      {double? accuracy}) {
     _requireApproved();
     return _request(
         'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/location',
-        body: {'latitude': lat, 'longitude': lng});
+        body: {
+          'latitude': lat,
+          'longitude': lng,
+          if (accuracy != null && accuracy.isFinite)
+            'accuracyMeters': accuracy.round(),
+        });
   }
 
   Future<Map<String, dynamic>> uploadEvidence(
