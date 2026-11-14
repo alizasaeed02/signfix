@@ -1341,12 +1341,12 @@ class ApiClient {
           break;
         case 'POST':
           response = await _httpClient
-              .post(uri, headers: headers, body: jsonEncode(body))
+              .post(uri, headers: headers, body: jsonEncode(body ?? const <String, dynamic>{}))
               .timeout(timeout);
           break;
         case 'PATCH':
           response = await _httpClient
-              .patch(uri, headers: headers, body: jsonEncode(body))
+              .patch(uri, headers: headers, body: jsonEncode(body ?? const <String, dynamic>{}))
               .timeout(timeout);
           break;
         case 'DELETE':

@@ -743,12 +743,12 @@ class TechnicianApi {
           break;
         case 'POST':
           r = await http
-              .post(u, headers: h, body: jsonEncode(body))
+              .post(u, headers: h, body: jsonEncode(body ?? const <String, dynamic>{}))
               .timeout(timeout);
           break;
         case 'PATCH':
           r = await http
-              .patch(u, headers: h, body: jsonEncode(body))
+              .patch(u, headers: h, body: jsonEncode(body ?? const <String, dynamic>{}))
               .timeout(timeout);
           break;
         default:
