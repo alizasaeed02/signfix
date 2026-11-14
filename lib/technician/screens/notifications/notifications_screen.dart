@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
-import '../../../core/app_utils.dart' show notificationIsRead, userMessage;
+import '../../../core/app_utils.dart' show notificationIsRead;
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen(
@@ -15,6 +15,17 @@ class NotificationsScreen extends StatefulWidget {
 class NotificationsScreenState extends State<NotificationsScreen> {
   late Future<List<dynamic>> _future;
 
+  // Alerts the technician has marked read. They stay read on screen (red dot
+  // and badge gone) even if the server is slow or the request fails.
+  final Set<String> _locallyRead = {};
+  List<dynamic> _lastList = const [];
+
+  bool _isRead(Map<dynamic, dynamic> n) =>
+      notificationIsRead(n) || _locallyRead.contains('${n['id']}');
+
+  int _unreadCount(List<dynamic> list) =>
+      list.whereType<Map>().where((n) => !_isRead(n)).length;
+
   @override
   void initState() {
     super.initState();
@@ -23,8 +34,8 @@ class NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<List<dynamic>> _fetchAndNotify() async {
     final list = await widget.api.notifications();
-    final unread = list.where((n) => !notificationIsRead(n)).length;
-    if (mounted) widget.onUnreadChanged?.call(unread);
+    _lastList = list;
+    if (mounted) widget.onUnreadChanged?.call(_unreadCount(list));
     return list;
   }
 
@@ -57,30 +68,31 @@ class NotificationsScreenState extends State<NotificationsScreen> {
 
   void _reload() => refresh();
 
-  void _toast(Object e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(userMessage(e))));
-  }
-
+  /// "Mark all read": the red dots and the badge disappear at once. The server
+  /// is told in the background; a failure is never shown to the technician.
   Future<void> _markAllRead() async {
+    setState(() {
+      for (final n in _lastList.whereType<Map>()) {
+        _locallyRead.add('${n['id']}');
+      }
+    });
+    widget.onUnreadChanged?.call(0);
     try {
       await widget.api.markAllRead();
-    } catch (e) {
-      _toast(e); // was silent: the button looked dead when the request failed
+    } catch (_) {
+      // intentionally silent
     }
-    _reload();
   }
 
   Future<void> _markRead(String id) async {
+    setState(() => _locallyRead.add(id));
+    widget.onUnreadChanged?.call(_unreadCount(_lastList));
     try {
       await widget.api.markNotificationRead(id);
-    } catch (e) {
-      _toast(e);
+    } catch (_) {
+      // intentionally silent
     }
-    _reload();
   }
-
   IconData _icon(String? type) {
     switch (type) {
       case 'emergency':
@@ -242,7 +254,7 @@ class NotificationsScreenState extends State<NotificationsScreen> {
               );
             }
 
-            final unread = list.where((n) => !notificationIsRead(n)).length;
+            final unread = _unreadCount(list);
 
             return RefreshIndicator(
               color: AppColors.gold,
@@ -291,7 +303,7 @@ class NotificationsScreenState extends State<NotificationsScreen> {
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) {
                         final n = list[i] as Map<String, dynamic>;
-                        final isRead = notificationIsRead(n);
+                        final isRead = _isRead(n);
                         final color = _color(n['type']?.toString());
                         final isEmergency = n['type'] == 'emergency';
 

@@ -44,8 +44,10 @@ class _CustomerHomeState extends State<CustomerHome> {
           api: widget.api,
           onOrder: _goToOrder,
           onBannerOrder: (bannerId) {
-            // Banner 2 → Signage Design Studio (full custom screen)
-            if (bannerId == 'home_banner_2') {
+            // Banner 1 ("Design") → Signage Design Studio (full custom screen).
+            // The promotion id stays the tapped banner's own, so each banner
+            // keeps its own cashback offer.
+            if (bannerId == 'home_banner_1') {
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -78,7 +80,8 @@ class _CustomerHomeState extends State<CustomerHome> {
               );
               return;
             }
-            // Banner 1 (and any other banners) → standard OrderWizard with cashback
+            // Banner 2 ("Shop Now", neon) and any other banner → the shop /
+            // standard OrderWizard with that banner's cashback
             _promotionBannerNotifier.value = bannerId;
             _goTo(1);
           },
@@ -467,7 +470,8 @@ class _DashboardState extends State<_Dashboard> {
               onBannerTap: (bannerId) => widget.onBannerOrder(bannerId),
             ),
 
-            // ── Create Design shortcut (opens the Design Studio) ───────────────
+            // ── Create shortcut (opens the shop page; the Design Studio is on
+            //    the first banner's "Design" button) ─────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
               child: SizedBox(
@@ -484,7 +488,7 @@ class _DashboardState extends State<_Dashboard> {
                   ),
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text(
-                    'Create Design',
+                    'Create Order',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                   ),
                 ),
@@ -783,8 +787,8 @@ class _PromoBannerSlider extends StatelessWidget {
             color: AppColors.success
           ),
           'cta': (
-            icon: Icons.auto_awesome_outlined,
-            label: 'Design Studio',
+            icon: Icons.shopping_cart_outlined,
+            label: 'Shop Now',
             color: AppColors.gold
           ),
         };
@@ -809,8 +813,8 @@ class _PromoBannerSlider extends StatelessWidget {
             color: AppColors.success
           ),
           'cta': (
-            icon: Icons.shopping_cart_outlined,
-            label: 'Shop Now',
+            icon: Icons.auto_awesome_outlined,
+            label: 'Design',
             color: AppColors.gold
           ),
         };
