@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,8 +8,8 @@ import 'api_client.dart';
 /// Sends the technician's live GPS position to the backend while a job is
 /// active (accepted / on_the_way / work_in_progress):
 ///   POST /technician/jobs/{jobId}/location  {latitude, longitude}
-/// every [interval]. On Android a foreground notification keeps updates coming
-/// when the app is in the background or the screen is off.
+/// every [interval]. Updates are sent while the app is open (no background
+/// service is used).
 class LocationTracker {
   LocationTracker(this.api);
 
@@ -26,7 +25,6 @@ class LocationTracker {
   };
 
   Timer? _timer;
-  StreamSubscription<Position>? _stream;
   Position? _last;
   bool _busy = false;
   List<String> _ids = const [];
@@ -42,12 +40,6 @@ class LocationTracker {
   void stop() {
     _timer?.cancel();
     _timer = null;
-    _stopStream();
-  }
-
-  void _stopStream() {
-    _stream?.cancel();
-    _stream = null;
   }
 
   Future<void> _tick() async {
@@ -55,7 +47,6 @@ class LocationTracker {
     _busy = true;
     try {
       if (api.isPendingApproval) {
-        _stopStream();
         return;
       }
       // Jobs / sharing switch are re-read once a minute, not on every ping.
@@ -81,12 +72,10 @@ class LocationTracker {
       }
       final ids = _ids;
       if (ids.isEmpty || _sharingOff) {
-        _stopStream();
         return;
       }
 
       if (!await _ensurePermission()) return;
-      _ensureStream();
 
       Position? pos = _last;
       try {
@@ -125,27 +114,5 @@ class LocationTracker {
     }
     return perm == LocationPermission.always ||
         perm == LocationPermission.whileInUse;
-  }
-
-  /// Android: a position stream with a foreground notification keeps the app
-  /// process alive in the background so the timer keeps sending.
-  void _ensureStream() {
-    if (_stream != null) return;
-    final LocationSettings settings = Platform.isAndroid
-        ? AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
-            intervalDuration: interval,
-            foregroundNotificationConfig: const ForegroundNotificationConfig(
-              notificationTitle: 'SignFix is sharing your location',
-              notificationText: 'Your live location is shared during active jobs.',
-              enableWakeLock: true,
-            ),
-          )
-        : const LocationSettings(accuracy: LocationAccuracy.high);
-    _stream = Geolocator.getPositionStream(locationSettings: settings).listen(
-      (p) => _last = p,
-      onError: (_) => _stopStream(),
-    );
   }
 }
