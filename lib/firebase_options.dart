@@ -64,12 +64,12 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyD3bdD7astpQNwYlIEaPSmQM-Jnfse9zzE',
-    appId: '1:887037934986:ios:b8ed4f0b70e05d67105c73',
-    messagingSenderId: '887037934986',
-    projectId: 'project-a8d0dfe8-9b1e-4ed0-91a',
-    storageBucket: 'project-a8d0dfe8-9b1e-4ed0-91a.firebasestorage.app',
-    iosClientId: '887037934986-p5eg03khhi6519ov2u3j680joc768arq.apps.googleusercontent.com',
-    iosBundleId: 'com.signfix.customer',
+    apiKey: 'AIzaSyApc2sxkwfps1zUYYrLS2Ksz35jU5Zh7sQ',
+    appId: '1:531570390505:ios:0dee05417ab4864706c778',
+    messagingSenderId: '531570390505',
+    projectId: 'signfix-feb4b',
+    storageBucket: 'signfix-feb4b.firebasestorage.app',
+    iosClientId: '531570390505-i2l3513s7at1noct1d5oe9fes7j8cq3k.apps.googleusercontent.com',
+    iosBundleId: 'com.signfix.app',
   );
 }

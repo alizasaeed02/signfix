@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../firebase_options.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:http/http.dart' as http;
 
 class AuthService {
@@ -10,6 +12,16 @@ class AuthService {
   // ✅ Ye exact Web Client ID tumhare google-services.json (client_type: 3) se liya gaya hai
   static const String _googleServerClientId =
       '531570390505-n86thi83hq0p9eirs5bf8ajo4j24ovkp.apps.googleusercontent.com';
+
+  // iOS uses the iOS OAuth client (firebase_options / Info.plist); the web
+  // client is the same one as Android (same Firebase project signfix-feb4b).
+  static bool get _isIos => defaultTargetPlatform == TargetPlatform.iOS;
+
+  static GoogleSignIn _googleSignIn() => GoogleSignIn(
+        scopes: ['email', 'profile'],
+        clientId: _isIos ? DefaultFirebaseOptions.ios.iosClientId : null,
+        serverClientId: _googleServerClientId,
+      );
 
   static Future<void> requestPhoneOtp({
     required String phoneNumber,
@@ -47,11 +59,7 @@ class AuthService {
   }) async {
     try {
       // 1. Trigger Google Sign-In on device
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email', 'profile'],
-        serverClientId:
-            _googleServerClientId, // ✅ Zaroori hai backend verification ke liye
-      );
+      final GoogleSignIn googleSignIn = _googleSignIn();
 
       // Purana session clear karo taake fresh login ho
       await googleSignIn.signOut();
@@ -122,8 +130,56 @@ class AuthService {
     }
   }
 
+  /// Sign in with Apple (iOS). Returns null if the user cancels.
+  /// The Apple identity token is verified by POST /auth/apple.
+  static Future<Map<String, dynamic>?> signInWithApple({
+    String role = 'customer',
+  }) async {
+    try {
+      final AuthorizationCredentialAppleID apple =
+          await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+      final String? identityToken = apple.identityToken;
+      if (identityToken == null || identityToken.isEmpty) {
+        throw Exception('Apple sign-in could not be completed. Please try again.');
+      }
+      final name = [apple.givenName, apple.familyName]
+          .where((p) => p != null && p.trim().isNotEmpty)
+          .join(' ');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/apple'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'idToken': identityToken,
+          'role': role,
+          'portal': role,
+          if (name.isNotEmpty) 'name': name,
+        }),
+      );
+      final Map<String, dynamic> data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'token': data['token']?.toString() ?? '',
+          'user': (data['user'] as Map<String, dynamic>?) ?? {},
+          'isNewUser': data['isNewUser'] == true,
+        };
+      }
+      throw Exception(data['error']?.toString() ??
+          'Apple sign-in failed. Please try again.');
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) return null;
+      debugPrint('Apple Sign-In error: $e');
+      throw Exception('Apple sign-in could not be completed. Please try again.');
+    }
+  }
+
   static Future<void> signOut() async {
-    await GoogleSignIn().signOut();
+    await _googleSignIn().signOut();
     await FirebaseAuth.instance.signOut();
   }
 }
