@@ -79,5 +79,23 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>SignFix uses the camera so you can take photos of your shop or signboard, or of a job site, and attach them to your order or service request.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SignFix needs access to your photos so you can choose a picture of your shop, signboard or job site to attach to your order or service request.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SignFix uses your location to fill in your delivery or site address and to help technicians find your location.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>mailto</string>
+		<string>sms</string>
+		<string>https</string>
+		<string>whatsapp</string>
+	</array>
 </dict>
 </plist>
