@@ -135,6 +135,19 @@ router.post(
   ),
   controller.resendRegistrationOtp,
 );
+router.post(
+  "/apple",
+  authLimiter,
+  validate(
+    z.object({
+      idToken: z.string().min(20),
+      portal: z.enum(["customer", "technician"]).optional(),
+      role: z.string().max(30).optional(),
+      name: z.string().max(160).optional(),
+    }),
+  ),
+  controller.appleAuth,
+);
 router.get("/me", authenticate, controller.me);
 router.post(
   "/change-password",

@@ -14,7 +14,8 @@
     "test": "vitest run",
     "start": "node server/index.js",
     "server": "node server/index.js",
-    "db:seed": "node server/seed.js"
+    "db:seed": "node server/seed.js",
+    "demo:accounts": "node server/createDemoAccounts.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

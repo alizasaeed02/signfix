@@ -4,6 +4,7 @@ import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../../../services/auth_service.dart';
 import '../../widgets/common.dart';
+import '../../../widgets/apple_sign_in_button.dart';
 import '../registration/reg_step1_personal.dart';
 import '../registration/registration_data.dart';
 import '../../../screens/auth/forgot_password_screen.dart';
@@ -29,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _loading = false;
   bool _googleLoading = false;
+  bool _appleLoading = false;
   bool _obscure = true;
   String? _error;
   String? _emailError;
@@ -70,6 +72,44 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _googleLoading = false);
+    }
+  }
+
+  Future<void> _handleAppleSignIn() async {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _googleLoading = true;
+      _appleLoading = true;
+      _error = null;
+    });
+    try {
+      final res = await AuthService.signInWithApple(role: 'technician');
+      if (res == null) return;
+      final String? token = res['token']?.toString();
+      if (token != null && token.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('technician_token', token);
+        if (res['user'] != null && res['user']['email'] != null) {
+          await prefs.setString(
+              'technician_email', res['user']['email'].toString());
+        }
+        await widget.api.restoreSession();
+        widget.onAuthenticated();
+      } else {
+        throw Exception('Token not received from server');
+      }
+    } catch (e) {
+      if (mounted) {
+        final str = userMessage(e);
+        setState(() => _error = str);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _googleLoading = false;
+          _appleLoading = false;
+        });
+      }
     }
   }
 
@@ -313,10 +353,19 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: const Text('Start Work')),
                       const SizedBox(height: 14),
                       GoogleSignInButton(
-                        loading: _googleLoading,
+                        loading: _googleLoading && !_appleLoading,
                         label: 'Sign in with Google',
                         onPressed: _loading ? null : _handleGoogleSignIn,
                       ),
+                    if (AppleSignInButton.isSupported) ...[
+                      const SizedBox(height: 10),
+                      AppleSignInButton(
+                        loading: _appleLoading,
+                        onPressed: _loading || _googleLoading
+                            ? null
+                            : _handleAppleSignIn,
+                      ),
+                    ],
 
                       const SizedBox(height: 10),
                       OutlinedButton.icon(

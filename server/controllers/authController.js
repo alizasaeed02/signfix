@@ -272,6 +272,14 @@ async function googleAuth(req, res) {
     });
   }
 
+  return completeSocialLogin(req, res, verifiedEmail, verifiedName, "google");
+}
+
+// Finds or creates the account for a verified social-login e-mail (Google /
+// Apple) and returns the SignFix token. Shared by googleAuth and appleAuth.
+async function completeSocialLogin(req, res, verifiedEmail, verifiedName, provider) {
+  const { portal } = req.body;
+  const label = provider === "apple" ? "Apple" : "Google";
   // ── DEV DB BYPASS ──────────────────────────────────────────────────────────
   // Local testing ke liye: jab DEV_BYPASS_DB=true ho aur production na ho, to
   // database skip karke mock user banao taaki Google auth flow complete ho jaye.
@@ -286,7 +294,7 @@ async function googleAuth(req, res) {
     );
     const mockUser = {
       id: -1,
-      name: verifiedName || "Google Customer",
+      name: verifiedName || `${label} Customer`,
       email: verifiedEmail,
       role: "customer",
       permissions: [],
@@ -324,7 +332,7 @@ async function googleAuth(req, res) {
         },NOW())`,
         [
           roleRow.id,
-          verifiedName || (asTechnician ? "Google Technician" : "Google Customer"),
+          verifiedName || (asTechnician ? `${label} Technician` : `${label} Customer`),
           verifiedEmail,
           passwordHash,
         ]
@@ -347,9 +355,9 @@ async function googleAuth(req, res) {
       try {
         await client.query("ROLLBACK");
       } catch (_) {}
-      console.error("[auth] Google auto-registration failed:", regErr);
+      console.error("[auth] Social auto-registration failed:", regErr);
       return res.status(500).json({
-        error: `Failed to create ${portal === "technician" ? "technician" : "customer"} account with Google.`,
+        error: `Failed to create ${portal === "technician" ? "technician" : "customer"} account with ${label}.`,
       });
     } finally {
       client.release();
@@ -408,7 +416,7 @@ async function googleAuth(req, res) {
       "INSERT INTO audit_logs(user_id,action,entity_type,metadata) VALUES($1,$2,$3,$4)",
       [
         user.id,
-        "auth.google_login",
+        `auth.${provider}_login`,
         "user",
         JSON.stringify({
           portal: portal || "unspecified",
@@ -423,6 +431,73 @@ async function googleAuth(req, res) {
     token: issueToken(authenticatedUser),
     user: authenticatedUser,
   });
+}
+
+// ── Sign in with Apple ───────────────────────────────────────────────────────
+// The app sends the Apple identity token (JWT). It is verified against Apple's
+// public keys; audience = the iOS bundle id (APPLE_AUDIENCES, comma separated).
+const _appleKeyCache = { keys: null, expiry: 0 };
+async function _getApplePublicKeys() {
+  const now = Date.now();
+  if (_appleKeyCache.keys && now < _appleKeyCache.expiry) return _appleKeyCache.keys;
+  const res = await fetch("https://appleid.apple.com/auth/keys");
+  const data = await res.json();
+  _appleKeyCache.keys = data.keys || [];
+  _appleKeyCache.expiry = now + 60 * 60 * 1000;
+  return _appleKeyCache.keys;
+}
+
+async function verifyAppleIdToken(idToken) {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3) throw new Error("Invalid JWT format");
+  const header = JSON.parse(Buffer.from(parts[0], "base64url").toString());
+  const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
+  if (payload.iss !== "https://appleid.apple.com") throw new Error("Invalid issuer");
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error("Apple identity token has expired");
+  }
+  const audiences = (process.env.APPLE_AUDIENCES || "com.signfix.app")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  if (!audiences.includes(String(payload.aud))) {
+    throw new Error(`Invalid audience: ${payload.aud}`);
+  }
+  const keys = await _getApplePublicKeys();
+  const jwk = keys.find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error(`No matching Apple public key for kid: ${header.kid}`);
+  const publicKey = crypto.createPublicKey({ key: jwk, format: "jwk" });
+  const valid = crypto.verify(
+    "sha256",
+    Buffer.from(`${parts[0]}.${parts[1]}`),
+    publicKey,
+    Buffer.from(parts[2], "base64url"),
+  );
+  if (!valid) throw new Error("Apple identity token signature verification failed");
+  return payload;
+}
+
+async function appleAuth(req, res) {
+  let payload;
+  try {
+    payload = await verifyAppleIdToken(req.body.idToken);
+  } catch (err) {
+    console.warn("[auth] Apple token verification failed:", err.message);
+    return res.status(401).json({
+      error: "Unable to verify Apple authentication token.",
+      code: "APPLE_AUTH_FAILED",
+    });
+  }
+  const email = String(payload.email || "").toLowerCase().trim();
+  if (!email.includes("@")) {
+    return res.status(401).json({
+      error: "Apple did not share an email address. Please try again.",
+      code: "APPLE_EMAIL_MISSING",
+    });
+  }
+  // Apple only sends the name the first time, and only from the device.
+  const name = String(req.body.name || "").trim();
+  return completeSocialLogin(req, res, email, name, "apple");
 }
 
 async function firebasePhoneAuth(req, res) {
@@ -1244,6 +1319,7 @@ async function changePassword(req, res) {
 module.exports = {
   login,
   googleAuth,
+  appleAuth,
   firebasePhoneAuth,
   me,
   sendTechnicianRegistrationOtp,
