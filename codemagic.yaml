@@ -18,12 +18,9 @@ workflows:
         BUNDLE_ID: "com.signfix.app"
         # Numeric "Apple ID" of the app in App Store Connect (App Information page).
         APP_STORE_APPLE_ID: "REPLACE_WITH_APP_STORE_CONNECT_APPLE_ID"
-        # Add GOOGLE_SERVICE_INFO_PLIST as a SECRET variable in Codemagic
-        # (base64 of ios/Runner/GoogleService-Info.plist). Never commit that file's contents here.
+        # ios/Runner/GoogleService-Info.plist is committed in the repo (it holds
+        # public Firebase client ids only), so no secret variable is needed.
     scripts:
-      - name: Write GoogleService-Info.plist
-        script: |
-          echo "$GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install CocoaPods
