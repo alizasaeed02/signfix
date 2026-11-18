@@ -74,7 +74,7 @@ async function listJobs(user, query) {
     FROM technician_jobs j JOIN service_tickets s ON s.id=j.ticket_id JOIN customers c ON c.id=s.customer_id
     JOIN users cu ON cu.id=c.user_id LEFT JOIN technicians t ON t.id=j.technician_id ${f.sql}
     ORDER BY CASE WHEN LOWER(s.priority)='emergency' THEN 0 ELSE 1 END,j.scheduled_at IS NULL,j.scheduled_at,j.id DESC LIMIT $${f.values.length-1} OFFSET $${f.values.length}`,f.values);
-  const total=rows[0]?.totalCount||0; return { items:rows.map(({totalCount,...r})=>r),pagination:{page:Math.floor(offset/limit)+1,limit,total,totalPages:Math.ceil(total/limit)} };
+  const total=rows[0]?.totalCount||0; return { items:rows.map(({totalCount,...r})=>({...r,phone:r.customerPhone})),pagination:{page:Math.floor(offset/limit)+1,limit,total,totalPages:Math.ceil(total/limit)} };
 }
 
 async function getJob(id,user) {

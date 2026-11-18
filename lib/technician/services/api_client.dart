@@ -617,11 +617,12 @@ class TechnicianApi {
         '/technician/jobs/${Uri.encodeComponent(jobId)}/completion-otp');
   }
 
-  Future<Map<String, dynamic>> confirmJobCompletion(String jobId, String otp) {
+  Future<Map<String, dynamic>> confirmJobCompletion(String jobId, String otp,
+      [String customerName = 'Customer']) {
     _requireApproved();
     return _request(
         'POST', '/technician/jobs/${Uri.encodeComponent(jobId)}/confirm',
-        body: {'otp': otp});
+        body: {'otp': otp, 'accepted': true, 'customerName': customerName});
   }
 
   Future<Map<String, dynamic>> updateLocation(
