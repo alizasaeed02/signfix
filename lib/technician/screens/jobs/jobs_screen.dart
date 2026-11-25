@@ -503,11 +503,8 @@ class _JobDetailState extends State<JobDetailScreen> {
   late String status;
   final notes = TextEditingController();
   final parts = TextEditingController();
-  final otp = TextEditingController();
   final evidence = <String, List<File>>{'before': [], 'work': [], 'after': []};
   bool loading = false;
-  bool _otpSent = false;
-  bool _confirmed = false;
   Map<String, dynamic>? _detail;
 
   static const _flow = [
@@ -524,13 +521,7 @@ class _JobDetailState extends State<JobDetailScreen> {
   void initState() {
     super.initState();
     status = widget.job['status']?.toString() ?? 'assigned';
-    _confirmed = _hasConfirmation(widget.job);
     _loadDetail();
-  }
-
-  bool _hasConfirmation(Map<dynamic, dynamic> j) {
-    final c = j['customerConfirmation'] ?? j['customer_confirmation'];
-    return c != null && c.toString().isNotEmpty && c.toString() != '{}';
   }
 
   /// The jobs list does not always carry every field (e.g. the customer's
@@ -544,7 +535,6 @@ class _JobDetailState extends State<JobDetailScreen> {
       if (!mounted) return;
       setState(() {
         _detail = d;
-        if (_hasConfirmation(d)) _confirmed = true;
       });
     } catch (_) {
       // Optional: the list data is used when the detail cannot be loaded.
@@ -578,25 +568,10 @@ class _JobDetailState extends State<JobDetailScreen> {
     return null;
   }
 
-  String get _customerName {
-    for (final src in [_detail, widget.job]) {
-      if (src == null) continue;
-      for (final key in const ['customerName', 'customer']) {
-        final v = src[key];
-        if (v is String && v.trim().length >= 2) return v.trim();
-        if (v is Map && (v['name']?.toString().trim().length ?? 0) >= 2) {
-          return v['name'].toString().trim();
-        }
-      }
-    }
-    return 'Customer';
-  }
-
   @override
   void dispose() {
     notes.dispose();
     parts.dispose();
-    otp.dispose();
     super.dispose();
   }
 
@@ -612,8 +587,9 @@ class _JobDetailState extends State<JobDetailScreen> {
     final idx = _flow.indexOf(status);
     final next =
         idx < 0 ? _flow.first : _flow[(idx + 1).clamp(0, _flow.length - 1)];
-    if (next == 'completed') {
-      await _completeAndSendOtp();
+    if (next == 'completed' && evidence['after']!.isEmpty) {
+      showAppError(
+          context, 'Add at least one after photo before completing the job.');
       return;
     }
     // Pending (not yet approved) technicians can browse but not do live work.
@@ -634,7 +610,6 @@ class _JobDetailState extends State<JobDetailScreen> {
         extra: {
           'notes': notes.text.trim(),
           'parts': parts.text.trim(),
-          'customerOtp': otp.text.trim(),
         },
       );
       if (mounted) {
@@ -654,99 +629,6 @@ class _JobDetailState extends State<JobDetailScreen> {
   void _goToProfile() {
     Navigator.of(context).maybePop();
     widget.onGoToProfile?.call();
-  }
-
-  Future<void> _uploadEvidence() async {
-    for (final entry in evidence.entries) {
-      final files = List<File>.from(entry.value);
-      for (final file in files) {
-        await widget.api.upload(file, entry.key, widget.job['id'].toString());
-        entry.value.remove(file);
-      }
-    }
-  }
-
-  /// Last step: marks the work complete, then the server sends a 6-digit OTP
-  /// to the customer. The customer reads it out and the technician confirms.
-  Future<void> _completeAndSendOtp() async {
-    if (status != 'completed' && evidence['after']!.isEmpty) {
-      showAppError(
-          context, 'Add at least one after photo before completing the job.');
-      return;
-    }
-    if (widget.api.isPendingApproval) {
-      showActionLockedDialog(context, onGoToProfile: _goToProfile);
-      return;
-    }
-    setState(() => loading = true);
-    try {
-      if (status != 'completed') {
-        await _uploadEvidence();
-        final result = await widget.api.updateJob(
-          widget.job['id'].toString(),
-          'completed',
-          extra: {
-            'notes': notes.text.trim(),
-            'parts': parts.text.trim(),
-          },
-        );
-        if (mounted) {
-          setState(() => status = result['status']?.toString() ?? 'completed');
-        }
-      }
-      await _sendOtp(alreadyLoading: true);
-    } catch (e) {
-      if (mounted) showTechnicianError(context, e, onGoToProfile: _goToProfile);
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
-
-  Future<void> _sendOtp({bool alreadyLoading = false}) async {
-    if (!alreadyLoading) setState(() => loading = true);
-    try {
-      final res = await widget.api.sendCompletionOtp(widget.job['id'].toString());
-      final data = res['data'] is Map ? res['data'] as Map : res;
-      final delivered = data['delivered'];
-      final sent = delivered is! List || delivered.isNotEmpty;
-      if (mounted) {
-        setState(() => _otpSent = true);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(sent
-              ? 'OTP sent to the customer. Ask them for the 6-digit code.'
-              : 'OTP created, but the customer has not received it yet. '
-                  'Ask them to check their SignFix alerts, then tap Resend OTP.'),
-          backgroundColor: sent ? AppColors.success : AppColors.warning,
-        ));
-      }
-    } catch (e) {
-      if (mounted) showTechnicianError(context, e, onGoToProfile: _goToProfile);
-    } finally {
-      if (!alreadyLoading && mounted) setState(() => loading = false);
-    }
-  }
-
-  Future<void> _confirmCompletion() async {
-    final code = otp.text.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      showAppError(context, 'Enter the 6-digit OTP given by the customer.');
-      return;
-    }
-    setState(() => loading = true);
-    try {
-      await widget.api.confirmJobCompletion(
-          widget.job['id'].toString(), code, _customerName);
-      if (mounted) {
-        setState(() => _confirmed = true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Job completed and confirmed by the customer.'),
-            backgroundColor: AppColors.success));
-      }
-    } catch (e) {
-      if (mounted) showTechnicianError(context, e, onGoToProfile: _goToProfile);
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
   }
 
   Future<void> _openMaps() async {
@@ -773,8 +655,7 @@ class _JobDetailState extends State<JobDetailScreen> {
     final idx = _flow.indexOf(status);
     final next =
         idx >= 0 ? _flow[(idx + 1).clamp(0, _flow.length - 1)] : 'accepted';
-    final isDone = _confirmed;
-    final awaitingOtp = status == 'completed' && !_confirmed;
+    final isDone = status == 'completed' || status == 'closed';
     final priority = widget.job['priority']?.toString() ?? 'normal';
 
     return Scaffold(
@@ -1069,35 +950,6 @@ class _JobDetailState extends State<JobDetailScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          if (awaitingOtp || _otpSent) ...[
-            TextField(
-              controller: otp,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              style: const TextStyle(color: AppColors.charcoal),
-              decoration: const InputDecoration(
-                labelText: 'Customer completion OTP',
-                hintText: 'Enter the 6-digit OTP from the customer',
-                prefixIcon: Icon(Icons.pin_outlined),
-              ),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: loading ? null : _sendOtp,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Resend OTP'),
-              ),
-            ),
-          ] else
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                'When the work is finished, tap "Complete work & send OTP". '
-                'The customer receives a 6-digit code to confirm completion.',
-                style: TextStyle(color: AppColors.midGray, fontSize: 12.5),
-              ),
-            ),
           const SizedBox(height: 18),
 
           // Status history
@@ -1147,18 +999,9 @@ class _JobDetailState extends State<JobDetailScreen> {
           // Advance button
           LoadingButton(
             loading: loading,
-            onPressed: isDone
-                ? null
-                : awaitingOtp
-                    ? _confirmCompletion
-                    : _advance,
-            child: Text(isDone
-                ? '✓ Job Completed'
-                : awaitingOtp
-                    ? 'Confirm completion with OTP'
-                    : next == 'completed'
-                        ? 'Complete work & send OTP'
-                        : 'Mark as ${humanize(next)}'),
+            onPressed: isDone ? null : _advance,
+            child:
+                Text(isDone ? '✓ Job Completed' : 'Mark as ${humanize(next)}'),
           ),
           const SizedBox(height: 24),
         ],
