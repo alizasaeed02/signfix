@@ -456,7 +456,7 @@ async function verifyAppleIdToken(idToken) {
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
     throw new Error("Apple identity token has expired");
   }
-  const audiences = (process.env.APPLE_AUDIENCES || "com.signfix.app")
+  const audiences = (process.env.APPLE_AUDIENCES || "com.signfixapp.app,com.signfix.app")
     .split(",")
     .map((a) => a.trim())
     .filter(Boolean);

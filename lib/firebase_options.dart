@@ -70,6 +70,6 @@ class DefaultFirebaseOptions {
     projectId: 'signfix-feb4b',
     storageBucket: 'signfix-feb4b.firebasestorage.app',
     iosClientId: '531570390505-i2l3513s7at1noct1d5oe9fes7j8cq3k.apps.googleusercontent.com',
-    iosBundleId: 'com.signfix.app',
+    iosBundleId: 'com.signfixapp.app',
   );
 }
