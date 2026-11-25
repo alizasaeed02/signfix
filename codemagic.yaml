@@ -13,9 +13,9 @@ workflows:
       cocoapods: default
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.signfixapp.app
+        bundle_identifier: com.signfix.app
       vars:
-        BUNDLE_ID: "com.signfixapp.app"
+        BUNDLE_ID: "com.signfix.app"
         # Numeric "Apple ID" of the app in App Store Connect (App Information page).
         APP_STORE_APPLE_ID: "6812948888"
         # ios/Runner/GoogleService-Info.plist is committed in the repo (it holds

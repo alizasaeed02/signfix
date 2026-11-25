@@ -3,7 +3,7 @@
 ## 1. Sign in with Apple endpoint (Guideline 4.8)
 `POST /api/auth/apple`  body: `{ "idToken": "<Apple identity token>", "portal": "customer|technician", "name": "optional" }`
 - Verifies the token against https://appleid.apple.com/auth/keys (RS256), issuer `https://appleid.apple.com`,
-  audience = iOS bundle id `com.signfixapp.app` (override with env `APPLE_AUDIENCES`, comma separated).
+  audience = iOS bundle id `com.signfix.app` (override with env `APPLE_AUDIENCES`, comma separated).
 - Finds/creates the user by the token's e-mail (may be a `@privaterelay.appleid.com` address) exactly like
   `/auth/google`, and returns `{ token, user }`. Code: `server/controllers/authController.js` (`appleAuth`,
   shared `completeSocialLogin`), route in `server/routes/authRoutes.js`.
