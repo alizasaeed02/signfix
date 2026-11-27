@@ -429,7 +429,7 @@ class ApiClient {
     final data = await _request('POST', '/auth/register', body: {
       'name': name,
       'email': email.trim(),
-      'mobile': phone,
+      if (phone.trim().isNotEmpty) 'mobile': phone,
       'password': password
     });
     final token = data['token']?.toString();
@@ -1298,8 +1298,12 @@ class ApiClient {
         body: {'oldPassword': oldPassword, 'newPassword': newPassword});
   }
 
+  /// Deletes the signed-in customer's account (guideline 5.1.1(v)).
   Future<void> deleteAccount() async {
-    await _request('DELETE', '/customer/account');
+    if (!mockMode) {
+      await _request('DELETE', '/customer/account',
+          body: const {'confirm': 'DELETE'});
+    }
     await logout();
   }
 

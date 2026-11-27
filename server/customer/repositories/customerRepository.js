@@ -634,13 +634,22 @@ async function asset(userId, assetNo) {
   delete row.id;
   return row;
 }
-async function deleteAccount(userId, password, user) {
+async function deleteAccount(userId, password, user, confirm) {
   const { rows } = await pool().query(
     "SELECT password_hash FROM users WHERE id=$1",
     [userId],
   );
-  if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash)))
-    throw Object.assign(new Error("Password is incorrect"), { status: 422 });
+  if (!rows[0]) throw Object.assign(new Error("Account not found"), { status: 404 });
+  // Accounts created with Google / Apple / phone have no password the user
+  // knows, so the in-app confirmation (typing DELETE) is accepted as well.
+  if (password) {
+    if (!(await bcrypt.compare(password, rows[0].password_hash)))
+      throw Object.assign(new Error("Password is incorrect"), { status: 422 });
+  } else if (String(confirm || "").trim().toUpperCase() !== "DELETE") {
+    throw Object.assign(new Error("Type DELETE to confirm account deletion"), {
+      status: 422,
+    });
+  }
   await pool().query(
     `UPDATE users SET status='deleted',email=CONCAT('deleted+',id,'+',UNIX_TIMESTAMP(),'@signfix.invalid'),mobile=NULL,updated_at=NOW() WHERE id=$1`,
     [userId],

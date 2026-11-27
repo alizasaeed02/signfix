@@ -146,7 +146,9 @@ async function asset(req, res) {
   res.json(await repo.asset(req.user.id, req.params.id));
 }
 async function deleteAccount(req, res) {
-  res.json(await repo.deleteAccount(req.user.id, req.body.password, req.user));
+  res.json(
+    await repo.deleteAccount(req.user.id, req.body.password, req.user, req.body.confirm),
+  );
 }
 async function createPayment(req, res, next) {
   try {

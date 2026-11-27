@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../core/app_utils.dart';
 import '../../services/api_client.dart';
 import '../../widgets/common.dart';
+import '../../widgets/delete_account.dart';
 import '../notifications/notifications_screen.dart';
 import '../support/help_support_screen.dart';
 import 'wallet_screen.dart';
@@ -739,7 +740,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ]),
                     ),
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 6),
+                  Center(
+                    child: DeleteAccountButton(
+                      onDelete: widget.api.deleteAccount,
+                      onDeleted: widget.onLogout,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             );

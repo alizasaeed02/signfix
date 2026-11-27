@@ -1030,8 +1030,10 @@ async function register(req, res) {
       throw Object.assign(new Error("Customer role is not configured"), {
         status: 503,
       });
-    const mobile = normalizeWhatsAppNumber(req.body.mobile);
-    if (!mobile)
+    // The phone number is optional (App Store guideline 5.1.1).
+    const rawMobile = String(req.body.mobile || "").trim();
+    const mobile = rawMobile ? normalizeWhatsAppNumber(rawMobile) : null;
+    if (rawMobile && !mobile)
       throw Object.assign(new Error("Enter a valid WhatsApp mobile number"), {
         status: 422,
       });

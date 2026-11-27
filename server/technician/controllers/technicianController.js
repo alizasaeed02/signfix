@@ -21,4 +21,13 @@ async function unregisterDevice(req,res){const result=await repo.pool().query('U
 async function reviews(req,res){res.json(await require('../../services/reviewService').technician(req.user.id));}
 async function createSiteRequest(req,res){res.status(201).json(await require('../services/siteRequestService').create(req.user,req.body));}
 async function listSiteRequests(req,res){res.json(await require('../services/siteRequestService').list(req.user));}
-module.exports={createSiteRequest,listSiteRequests,dashboard,profile,updateProfile,listJobs,getJob,navigation,updateStatus,addEvidence,addMaterial,shareLocation,requestOtp,confirm,notifications,readNotification,readAllNotifications,registerDevice,unregisterDevice,reviews};
+async function deleteAccount(req,res){
+  if(String(req.body.confirm||'').trim().toUpperCase()!=='DELETE')throw Object.assign(new Error('Type DELETE to confirm account deletion'),{status:422});
+  const pool=repo.pool(),uid=req.user.id;
+  await pool.query("UPDATE users SET status='deleted',email=CONCAT('deleted+',id,'+',UNIX_TIMESTAMP(),'@signfix.invalid'),mobile=NULL,updated_at=NOW() WHERE id=$1",[uid]);
+  await pool.query('UPDATE technicians SET location_sharing=FALSE,last_latitude=NULL,last_longitude=NULL,last_location_at=NULL,emergency_contact=NULL WHERE user_id=$1',[uid]);
+  await pool.query('UPDATE device_tokens SET active=FALSE WHERE user_id=$1',[uid]).catch(()=>{});
+  if(req.user.jti&&req.user.exp)await pool.query('INSERT IGNORE INTO revoked_tokens(jti,user_id,expires_at) VALUES($1,$2,FROM_UNIXTIME($3))',[req.user.jti,uid,req.user.exp]);
+  res.json({deleted:true,message:'Account has been deleted and personal details have been removed.'});
+}
+module.exports={deleteAccount,createSiteRequest,listSiteRequests,dashboard,profile,updateProfile,listJobs,getJob,navigation,updateStatus,addEvidence,addMaterial,shareLocation,requestOtp,confirm,notifications,readNotification,readAllNotifications,registerDevice,unregisterDevice,reviews};

@@ -456,6 +456,15 @@ class TechnicianApi {
     return (res['data'] as Map<String, dynamic>?) ?? res;
   }
 
+  /// Deletes the signed-in technician's account (guideline 5.1.1(v)).
+  Future<void> deleteAccount() async {
+    if (!mockMode) {
+      await _request('DELETE', '/technician/account',
+          body: const {'confirm': 'DELETE'});
+    }
+    await logout();
+  }
+
   Future<List<dynamic>> jobs() async {
     if (mockMode) {
       await Future.delayed(_mockDelay);

@@ -86,7 +86,8 @@ router.post(
   validate(
     z.object({
       name: z.string().min(2).max(120),
-      mobile: z.string().min(8).max(20),
+      // Optional: the phone number is not required to create an account.
+      mobile: z.string().max(20).optional().default(""),
       email: z.string().email(),
       password: strongPassword,
       companyName: optionalText(0, 160).default(""),

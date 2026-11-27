@@ -214,7 +214,12 @@ router.post(
 router.post("/payments/:id/cancel", controller.cancelPayment);
 router.delete(
   "/account",
-  validate(z.object({ password: z.string().min(6) })),
+  validate(
+    z.object({
+      password: z.string().min(6).optional(),
+      confirm: z.string().optional(),
+    }),
+  ),
   controller.deleteAccount,
 );
 
