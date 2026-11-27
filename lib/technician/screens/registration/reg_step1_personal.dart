@@ -188,6 +188,9 @@ class _RegStep1PersonalState extends State<RegStep1Personal> {
                 decoration: const InputDecoration(
                   labelText: 'Mobile Number *',
                   hintText: '+91 9876543210',
+                  helperText:
+                      'Needed so customers and our team can call you about your jobs and site visits.',
+                  helperMaxLines: 3,
                   prefixIcon: Icon(Icons.phone_outlined, color: AppColors.gold),
                 ),
               ),

@@ -429,7 +429,7 @@ class ApiClient {
     final data = await _request('POST', '/auth/register', body: {
       'name': name,
       'email': email.trim(),
-      if (phone.trim().isNotEmpty) 'mobile': phone,
+      'mobile': phone,
       'password': password
     });
     final token = data['token']?.toString();

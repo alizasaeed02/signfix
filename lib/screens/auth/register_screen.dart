@@ -85,20 +85,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Please enter a valid email address.');
       return;
     }
-    // The phone number is optional. If one is entered it must be valid.
-    var mobileForBackend = '';
-    if (!(phone.isEmpty || phone == '+91 ' || phone == '+91')) {
-      final cleanDigits = phone.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
-      // +91 XXXXXXXXXX -> "91" + 10 digits = 12 total
-      final numberAfter91 =
-          cleanDigits.startsWith('91') ? cleanDigits.substring(2) : cleanDigits;
-      if (numberAfter91.length != 10 ||
-          !RegExp(r'^\d+$').hasMatch(numberAfter91)) {
-        setState(() => _error =
-            'Enter a valid 10-digit number after +91 (e.g. +91 9876543210), or leave it empty.');
-        return;
-      }
-      mobileForBackend = '+91$numberAfter91';
+    // The phone number is required: a technician or delivery partner must be
+    // able to call the customer about the order / site visit.
+    if (phone.isEmpty || phone == '+91 ' || phone == '+91') {
+      setState(() => _error = 'Phone number is required.');
+      return;
+    }
+    final cleanDigits = phone.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
+    // +91 XXXXXXXXXX -> "91" + 10 digits = 12 total
+    final numberAfter91 =
+        cleanDigits.startsWith('91') ? cleanDigits.substring(2) : cleanDigits;
+    final mobileForBackend = '+91$numberAfter91';
+    if (numberAfter91.length != 10 ||
+        !RegExp(r'^\d+$').hasMatch(numberAfter91)) {
+      setState(() => _error =
+          'Enter a valid 10-digit number after +91 (e.g. +91 9876543210).');
+      return;
     }
     if (pass.isEmpty) {
       setState(() => _error = 'Password is required.');
@@ -215,8 +217,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(color: AppColors.charcoal),
                       decoration: const InputDecoration(
-                        labelText: 'Phone number (optional)',
+                        labelText: 'Phone number',
                         hintText: '+91 9876543210',
+                        helperText:
+                            'Needed so your technician or delivery partner can call you about your order or service visit.',
+                        helperMaxLines: 3,
                         prefixIcon: Icon(Icons.phone_outlined),
                       ),
                     ),
